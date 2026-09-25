@@ -11,7 +11,8 @@ import { plageDuTrait, type Mesure } from './zoneDuTrait';
 
 // ═══════════════════════════════════════════════════════════════════════════
 //  Le montage de l'agent sur UNE vue. On surligne ou on entoure un passage
-//  avec le calque d'annotation : une barre verticale apparaît à sa droite. La
+//  avec le calque d'annotation, ou on le sélectionne à la souris : une barre
+//  verticale apparaît à sa droite. La
 //  tête de chat de la barre ouvre la conversation, à droite de la barre. Un
 //  outil de la barre la remplace par son rond, puis par la carte de sa réponse.
 //
@@ -223,7 +224,7 @@ export function createAgentLayer(ctx: LayerContext): () => void {
             suppression = false;
         }
         zone = null;
-        annotation?.source.erase(t.zone.chemin, t.trait.id);
+        if (!t.trait.id.startsWith(SELECTION)) annotation?.source.erase(t.zone.chemin, t.trait.id);
         majOccupe();
         editor.requestUpdate();
     };
@@ -291,6 +292,65 @@ export function createAgentLayer(ctx: LayerContext): () => void {
         if (neuf) surTrait(path, neuf);
     });
 
+    // ── L'autre déclencheur : une sélection à la souris ────────────────────
+    //
+    // Surligner du texte avec le curseur de base, sans outil d'annotation, fait
+    // apparaître la même barre. Le clavier ne déclenche rien : Maj+flèches
+    // sert à éditer, pas à questionner.
+    //
+    // ★ POURQUOI un faux trait : la barre, la bulle, les cartes et la marge se
+    //   tiennent toutes à côté d'un `Stroke`. On en fabrique un qui épouse les
+    //   rectangles de la sélection, comme le ferait un surligneur, plutôt que
+    //   de donner à chaque pièce une deuxième forme de référence. Son id le
+    //   distingue : la poubelle n'a aucun trait d'encre à effacer.
+
+    let pointeurEnfonce = false;
+    let minuterie = 0;
+
+    const surSelection = (): void => {
+        if (occupe()) return;
+        const { from, to } = editor.getSelection();
+        // Un simple clic réduit la sélection à un curseur : on ne ferme rien.
+        if (from === to) return;
+        const glyphe = editor.coordsAtPos(from);
+        const rects = editor.coordsForRange(from, to);
+        if (!glyphe || rects.length === 0) return;
+        const left = Math.min(...rects.map((r) => r.left));
+        const top = Math.min(...rects.map((r) => r.top));
+        const right = Math.max(...rects.map((r) => r.right));
+        const bottom = Math.max(...rects.map((r) => r.bottom));
+        const coin = (x: number, y: number) => ({ dx: x - glyphe.left, dy: y - glyphe.top });
+
+        zone = { texte: texteEntre(editor, from, to), chemin: chemin(), from, to };
+        trait = {
+            id: `${SELECTION}${Date.now()}`,
+            pos: from,
+            points: [coin(left, top), coin(right, top), coin(right, bottom), coin(left, bottom)],
+            color: '',
+            width: 0,
+            tool: 'surligneur',
+        };
+        barre.montrer();
+        editor.requestUpdate();
+    };
+
+    const surPointerDown = (): void => {
+        pointeurEnfonce = true;
+        window.clearTimeout(minuterie);
+    };
+    // Sur le document : on relâche souvent hors du texte en fin de glissé. La
+    // sélection de l'éditeur n'est à jour qu'après le pointerup.
+    const surPointerUp = (): void => {
+        if (!pointeurEnfonce) return;
+        pointeurEnfonce = false;
+        minuterie = window.setTimeout(surSelection, 0);
+    };
+    // Une touche frappée avant la lecture : la sélection est celle du clavier.
+    const surTouche = (): void => window.clearTimeout(minuterie);
+    editor.contentEl.addEventListener('pointerdown', surPointerDown);
+    document.addEventListener('pointerup', surPointerUp);
+    document.addEventListener('keydown', surTouche, true);
+
     // ── Suivre le passage ──────────────────────────────────────────────────
 
     const replacer = (): void => {
@@ -356,6 +416,10 @@ export function createAgentLayer(ctx: LayerContext): () => void {
 
     return () => {
         paneEl.removeEventListener('pointerdown', bloquer, true);
+        editor.contentEl.removeEventListener('pointerdown', surPointerDown);
+        document.removeEventListener('pointerup', surPointerUp);
+        document.removeEventListener('keydown', surTouche, true);
+        window.clearTimeout(minuterie);
         paneEl.classList.remove('agent-occupe');
         paneEl.classList.remove('agent-pane');
         observateur.disconnect();
@@ -372,6 +436,9 @@ export function createAgentLayer(ctx: LayerContext): () => void {
         carnet.detruire();
     };
 }
+
+/** Le préfixe d'id du faux trait posé par une sélection à la souris. */
+const SELECTION = 'selection-';
 
 /** Un rectangle du passage visé, en coordonnées document. */
 class MarqueZone implements Marker {

@@ -78,6 +78,7 @@ declare module 'fragment' {
         getLine(n: number): string;
         offsetToPos(offset: number): EditorPosition;
         coordsForRange(from: number, to: number): Rect[];
+        getSelection(): EditorRange;
     }
 
     // ── Les calques (core/layers/types.ts) ──────────────────────────────────
