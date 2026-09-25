@@ -38,6 +38,25 @@ var import_fragment7 = require("fragment");
 // src/ActionAgent.ts
 var import_fragment2 = require("fragment");
 
+// src/bouton.ts
+var import_fragment = require("fragment");
+function boutonIcone(app, parent, icone, libelle, onClick, ...classes) {
+  const el = parent.appendChild(document.createElement("button"));
+  el.type = onClick ? "button" : "submit";
+  el.classList.add(...classes);
+  el.setAttribute("aria-label", libelle);
+  el.title = libelle;
+  (0, import_fragment.setIcon)(app, el, icone);
+  if (onClick) el.addEventListener("click", onClick);
+  return el;
+}
+function arc(parent) {
+  parent.insertAdjacentHTML(
+    "beforeend",
+    '<svg class="agent-action-arc" viewBox="0 0 60 60" aria-hidden="true"><circle cx="30" cy="30" r="28" pathLength="100"/></svg>'
+  );
+}
+
 // src/eclosion.ts
 var RAIDEUR = 300;
 var AMORTISSEMENT = 30;
@@ -703,7 +722,6 @@ async function resumerOral(historique, contexte) {
 }
 
 // src/supprimer.ts
-var import_fragment = require("fragment");
 var PiedSupprimer = class {
   el;
   poubelleEl;
@@ -717,13 +735,15 @@ var PiedSupprimer = class {
     this.el = document.createElement("div");
     this.el.classList.add("agent-pied");
     this.el.hidden = true;
-    this.poubelleEl = this.el.appendChild(document.createElement("button"));
-    this.poubelleEl.type = "button";
-    this.poubelleEl.classList.add("agent-pied-bouton", "agent-pied-poubelle");
-    this.poubelleEl.setAttribute("aria-label", "Supprimer l'annotation");
-    this.poubelleEl.title = "Supprimer l'annotation";
-    (0, import_fragment.setIcon)(app, this.poubelleEl, "trash-2");
-    this.poubelleEl.addEventListener("click", () => this.confirmer(true));
+    this.poubelleEl = boutonIcone(
+      app,
+      this.el,
+      "trash-2",
+      "Supprimer l'annotation",
+      () => this.confirmer(true),
+      "agent-pied-bouton",
+      "agent-pied-poubelle"
+    );
     this.confirmationEl = this.el.appendChild(document.createElement("div"));
     this.confirmationEl.classList.add("agent-pied-confirmation");
     this.confirmationEl.setAttribute("role", "group");
@@ -744,14 +764,15 @@ var PiedSupprimer = class {
     supprimerEl.textContent = "Supprimer";
     supprimerEl.addEventListener("click", () => onSupprimer());
     if (onDiscuter) {
-      const el = this.el.appendChild(document.createElement("button"));
-      el.type = "button";
-      el.classList.add("agent-pied-bouton", "agent-pied-discuter");
-      el.setAttribute("aria-label", "Discuter de cette r\xE9ponse");
-      el.title = "Discuter de cette r\xE9ponse";
-      (0, import_fragment.setIcon)(app, el, "cat");
-      el.addEventListener("click", () => onDiscuter());
-      this.discuterEl = el;
+      this.discuterEl = boutonIcone(
+        app,
+        this.el,
+        "cat",
+        "Discuter de cette r\xE9ponse",
+        () => onDiscuter(),
+        "agent-pied-bouton",
+        "agent-pied-discuter"
+      );
     }
     this.confirmationEl.addEventListener("keydown", (e) => {
       if (e.key !== "Escape") return;
@@ -808,7 +829,6 @@ var ActionAgent = class extends import_fragment2.Component {
   lancement = 0;
   /** Le cadre de la carte, relevé juste avant son retrait : le calque le lit à la fermeture. */
   cadreFerme = null;
-  animations = [];
   /** Ce que montre la carte, lu par le calque à la fermeture. */
   montre = null;
   app;
@@ -824,10 +844,7 @@ var ActionAgent = class extends import_fragment2.Component {
     this.cercleEl.setAttribute("role", "status");
     this.iconeCercleEl = this.cercleEl.appendChild(document.createElement("span"));
     this.iconeCercleEl.classList.add("agent-action-icone");
-    this.cercleEl.insertAdjacentHTML(
-      "beforeend",
-      '<svg class="agent-action-arc" viewBox="0 0 60 60" aria-hidden="true"><circle cx="30" cy="30" r="28" pathLength="100"/></svg>'
-    );
+    arc(this.cercleEl);
     this.carteEl = document.createElement("div");
     this.carteEl.classList.add("agent-action-carte");
     this.carteEl.setAttribute("role", "dialog");
@@ -843,13 +860,7 @@ var ActionAgent = class extends import_fragment2.Component {
     this.sourceEl.setAttribute("aria-label", "R\xE9ponse tir\xE9e du web");
     (0, import_fragment2.setIcon)(app, this.sourceEl, "globe");
     this.sourceEl.hidden = true;
-    const fermerEl = tete.appendChild(document.createElement("button"));
-    fermerEl.type = "button";
-    fermerEl.classList.add("agent-bulle-fermer");
-    fermerEl.setAttribute("aria-label", "Fermer");
-    fermerEl.title = "Fermer";
-    (0, import_fragment2.setIcon)(app, fermerEl, "x");
-    fermerEl.addEventListener("click", () => this.fermer());
+    boutonIcone(app, tete, "x", "Fermer", () => this.fermer(), "agent-bulle-fermer");
     this.corpsEl = this.carteEl.appendChild(document.createElement("div"));
     this.corpsEl.classList.add("agent-action-corps");
     this.corpsEl.setAttribute("aria-live", "polite");
@@ -912,7 +923,8 @@ var ActionAgent = class extends import_fragment2.Component {
     this.cercleEl.style.opacity = "0";
     this.load();
     this.rond = this.repere.monter(this.cercleEl, (el) => this.repere.aCote(el));
-    this.animations.push(resorber(depuis, this.cercleEl));
+    const resorption = resorber(depuis, this.cercleEl);
+    this.register(() => resorption.annuler());
     reponse.then((recue) => {
       if (!estCourant()) return;
       this.montre = resultat(recue);
@@ -941,7 +953,8 @@ var ActionAgent = class extends import_fragment2.Component {
       const trait = this.repere.boiteTrait();
       return this.repere.aCote(el, { haut: trait?.top ?? "centre", evites: [trait] });
     });
-    this.animations.push(eclore(depuis, this.carteEl));
+    const eclosion = eclore(depuis, this.carteEl);
+    this.register(() => eclosion.annuler());
   }
   fermer() {
     this.unload();
@@ -983,8 +996,6 @@ var ActionAgent = class extends import_fragment2.Component {
     this.corpsEl.textContent = reponse.texte;
   }
   onunload() {
-    for (const a of this.animations) a.annuler();
-    this.animations = [];
     this.cadreFerme = this.fenetre.estMontee() ? this.fenetre.cadre() : null;
     this.retirerRond();
     this.fenetre.retirer();
@@ -1012,7 +1023,7 @@ var ActionAgent = class extends import_fragment2.Component {
     }));
     this.cercleEl.classList.add("is-fini");
     const eclosion = eclore(this.cercleEl, this.carteEl);
-    this.animations.push(eclosion);
+    this.register(() => eclosion.annuler());
     void eclosion.fini.then(() => {
       if (this._loaded && this.lancement === lancement) this.retirerRond();
     });
@@ -1319,8 +1330,6 @@ var BulleAgent = class extends import_fragment4.Component {
    * de son ouverture à celui-ci avant de toucher à quoi que ce soit.
    */
   ouverture = 0;
-  /** L'animation d'ouverture en cours, à annuler si on ferme pendant. */
-  eclosion = null;
   repere;
   /** La barre et sa tête de chat : la bulle se pose à côté, alignée sur le bouton. */
   barre;
@@ -1355,13 +1364,7 @@ var BulleAgent = class extends import_fragment4.Component {
     tete.classList.add("agent-bulle-tete");
     this.extraitEl = tete.appendChild(document.createElement("div"));
     this.extraitEl.classList.add("agent-bulle-extrait");
-    const fermerEl = tete.appendChild(document.createElement("button"));
-    fermerEl.type = "button";
-    fermerEl.classList.add("agent-bulle-fermer");
-    fermerEl.setAttribute("aria-label", "Fermer");
-    fermerEl.title = "Fermer";
-    (0, import_fragment4.setIcon)(app, fermerEl, "x");
-    fermerEl.addEventListener("click", () => this.fermer());
+    boutonIcone(app, tete, "x", "Fermer", () => this.fermer(), "agent-bulle-fermer");
     this.filEl = this.dom.appendChild(document.createElement("div"));
     this.filEl.classList.add("agent-bulle-fil");
     this.filEl.setAttribute("aria-live", "polite");
@@ -1383,20 +1386,9 @@ var BulleAgent = class extends import_fragment4.Component {
         void this.envoyer();
       }
     });
-    this.microEl = saisie.appendChild(document.createElement("button"));
-    this.microEl.type = "button";
-    this.microEl.classList.add("agent-bulle-micro");
-    this.microEl.setAttribute("aria-label", "Reprendre la discussion \xE0 voix haute");
-    this.microEl.title = "Reprendre la discussion \xE0 voix haute";
+    this.microEl = boutonIcone(app, saisie, "mic", "Reprendre la discussion \xE0 voix haute", () => onMicro(), "agent-bulle-micro");
     this.microEl.hidden = true;
-    (0, import_fragment4.setIcon)(app, this.microEl, "mic");
-    this.microEl.addEventListener("click", () => onMicro());
-    this.envoyerEl = saisie.appendChild(document.createElement("button"));
-    this.envoyerEl.type = "submit";
-    this.envoyerEl.classList.add("agent-bulle-envoyer");
-    this.envoyerEl.setAttribute("aria-label", "Envoyer");
-    this.envoyerEl.title = "Envoyer";
-    (0, import_fragment4.setIcon)(app, this.envoyerEl, "arrow-up");
+    this.envoyerEl = boutonIcone(app, saisie, "arrow-up", "Envoyer", null, "agent-bulle-envoyer");
     this.pied = new PiedSupprimer(app, onSupprimer);
     this.dom.appendChild(this.pied.el);
     this.fenetre = new Fenetre(this.dom, tete, repere);
@@ -1474,7 +1466,8 @@ var BulleAgent = class extends import_fragment4.Component {
       this.dom.style.opacity = "0";
       this.load();
       this.poser();
-      this.eclosion = eclore(this.seule?.depuis ?? this.barre().chatEl, this.dom);
+      const eclosion = eclore(this.seule?.depuis ?? this.barre().chatEl, this.dom);
+      this.register(() => eclosion.annuler());
     }
     this.champEl.focus({ preventScroll: true });
   }
@@ -1501,8 +1494,6 @@ var BulleAgent = class extends import_fragment4.Component {
     this.origine = null;
     this.bilan = null;
     this.microEl.hidden = true;
-    this.eclosion?.annuler();
-    this.eclosion = null;
     this.dom.style.opacity = "";
     this.fenetre.retirer();
     this.filEl.replaceChildren();
@@ -2183,7 +2174,6 @@ var VoixAgent = class extends import_fragment6.Component {
   /** Le numéro de la réponse en cours : la fin d'une voix coupée ne relance rien. */
   parole = 0;
   etat = "rond";
-  animations = [];
   zone = null;
   historique = [];
   minuterie = 0;
@@ -2219,16 +2209,10 @@ var VoixAgent = class extends import_fragment6.Component {
     (0, import_fragment6.setIcon)(app, microEl, "mic");
     this.contenuEl = this.el.appendChild(document.createElement("div"));
     this.contenuEl.classList.add("agent-voix-contenu");
-    const fermerEl = this.contenuEl.appendChild(document.createElement("button"));
-    fermerEl.type = "button";
-    fermerEl.classList.add("agent-voix-fermer");
-    fermerEl.setAttribute("aria-label", "Fermer");
-    fermerEl.title = "Fermer";
-    (0, import_fragment6.setIcon)(app, fermerEl, "x");
-    fermerEl.addEventListener("click", () => {
+    boutonIcone(app, this.contenuEl, "x", "Fermer", () => {
       this.parCroix = true;
       this.fermer();
-    });
+    }, "agent-voix-fermer");
     this.contenuEl.appendChild(this.onde.el);
     this.messageEl = this.contenuEl.appendChild(document.createElement("span"));
     this.messageEl.classList.add("agent-voix-message");
@@ -2239,10 +2223,7 @@ var VoixAgent = class extends import_fragment6.Component {
     this.stopEl.type = "button";
     this.stopEl.classList.add("agent-voix-stop");
     this.stopEl.appendChild(document.createElement("span")).classList.add("agent-voix-carre");
-    this.stopEl.insertAdjacentHTML(
-      "beforeend",
-      '<svg class="agent-action-arc" viewBox="0 0 60 60" aria-hidden="true"><circle cx="30" cy="30" r="28" pathLength="100"/></svg>'
-    );
+    arc(this.stopEl);
     this.stopEl.addEventListener("click", () => this.surStop());
     this.el.addEventListener("keydown", (e) => e.stopPropagation());
     this.poserEtat("rond");
@@ -2267,7 +2248,7 @@ var VoixAgent = class extends import_fragment6.Component {
     this.handle = this.repere.monter(this.el, (el) => this.repere.aCote(el));
     const micro = this.ouvrirMicro(estCourant);
     const resorption = resorber(depuis, this.el);
-    this.animations.push(resorption);
+    this.register(() => resorption.annuler());
     void resorption.fini.then(async () => {
       const ok = await micro;
       if (estCourant()) this.etirer(ok);
@@ -2283,8 +2264,6 @@ var VoixAgent = class extends import_fragment6.Component {
     this.parCroix = false;
     this.historique = [];
     this.lancement++;
-    for (const a of this.animations) a.annuler();
-    this.animations = [];
     this.couperVoix();
     this.onde.repos();
     if (this.enregistreur && this.enregistreur.state !== "inactive") this.enregistreur.stop();
@@ -2503,10 +2482,10 @@ var VoixAgent = class extends import_fragment6.Component {
       ],
       { duration: APPARITION2, delay: RETARD_CONTENU, easing: "ease-out", fill: "backwards" }
     );
-    this.animations.push({ annuler: () => {
+    this.register(() => {
       etirement.cancel();
       contenu.cancel();
-    } });
+    });
     void etirement.finished.then(() => {
       if (this._loaded && this.lancement === lancement) poser();
     }).catch(() => {

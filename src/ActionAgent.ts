@@ -70,7 +70,6 @@ export class ActionAgent extends Component {
     private lancement = 0;
     /** Le cadre de la carte, relevé juste avant son retrait : le calque le lit à la fermeture. */
     private cadreFerme: Cadre | null = null;
-    private animations: { annuler(): void }[] = [];
     /** Ce que montre la carte, lu par le calque à la fermeture. */
     private montre: Resultat | null = null;
 
@@ -196,7 +195,8 @@ export class ActionAgent extends Component {
         this.load();
         // Le rond à la place de la barre : à côté du trait, centré sur lui.
         this.rond = this.repere.monter(this.cercleEl, (el) => this.repere.aCote(el));
-        this.animations.push(resorber(depuis, this.cercleEl));
+        const resorption = resorber(depuis, this.cercleEl);
+        this.register(() => resorption.annuler());
 
         reponse
             .then((recue) => {
@@ -230,7 +230,8 @@ export class ActionAgent extends Component {
             const trait = this.repere.boiteTrait();
             return this.repere.aCote(el, { haut: trait?.top ?? 'centre', evites: [trait] });
         });
-        this.animations.push(eclore(depuis, this.carteEl));
+        const eclosion = eclore(depuis, this.carteEl);
+        this.register(() => eclosion.annuler());
     }
 
     fermer(): void {
@@ -276,8 +277,6 @@ export class ActionAgent extends Component {
     }
 
     onunload(): void {
-        for (const a of this.animations) a.annuler();
-        this.animations = [];
         this.cadreFerme = this.fenetre.estMontee() ? this.fenetre.cadre() : null;
         this.retirerRond();
         this.fenetre.retirer();
@@ -312,7 +311,7 @@ export class ActionAgent extends Component {
         // Le rond s'arrête de tourner : la réponse est là.
         this.cercleEl.classList.add('is-fini');
         const eclosion: Eclosion = eclore(this.cercleEl, this.carteEl);
-        this.animations.push(eclosion);
+        this.register(() => eclosion.annuler());
         void eclosion.fini.then(() => {
             if (this._loaded && this.lancement === lancement) this.retirerRond();
         });

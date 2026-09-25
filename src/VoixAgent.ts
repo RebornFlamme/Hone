@@ -78,7 +78,6 @@ export class VoixAgent extends Component {
     /** Le numéro de la réponse en cours : la fin d'une voix coupée ne relance rien. */
     private parole = 0;
     private etat: Etat = 'rond';
-    private animations: { annuler(): void }[] = [];
     private zone: ContexteQuestion | null = null;
     private historique: Message[] = [];
     private minuterie = 0;
@@ -177,7 +176,7 @@ export class VoixAgent extends Component {
         // Le navigateur demande le micro pendant que la barre fond.
         const micro = this.ouvrirMicro(estCourant);
         const resorption = resorber(depuis, this.el);
-        this.animations.push(resorption);
+        this.register(() => resorption.annuler());
         void resorption.fini.then(async () => {
             const ok = await micro;
             if (estCourant()) this.etirer(ok);
@@ -195,8 +194,6 @@ export class VoixAgent extends Component {
         this.parCroix = false;
         this.historique = [];
         this.lancement++;
-        for (const a of this.animations) a.annuler();
-        this.animations = [];
         this.couperVoix();
         this.onde.repos();
         if (this.enregistreur && this.enregistreur.state !== 'inactive') this.enregistreur.stop();
@@ -446,7 +443,7 @@ export class VoixAgent extends Component {
             ],
             { duration: APPARITION, delay: RETARD_CONTENU, easing: 'ease-out', fill: 'backwards' },
         );
-        this.animations.push({ annuler: () => { etirement.cancel(); contenu.cancel(); } });
+        this.register(() => { etirement.cancel(); contenu.cancel(); });
         void etirement.finished.then(() => {
             if (this._loaded && this.lancement === lancement) poser();
         }).catch(() => {});

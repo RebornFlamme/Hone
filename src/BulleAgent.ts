@@ -1,6 +1,6 @@
 import { Component, type App } from 'fragment';
 import { boutonIcone } from './bouton';
-import { eclore, type Eclosion } from './eclosion';
+import { eclore } from './eclosion';
 import { Fenetre, type Cadre } from './fenetre';
 import type { Repere } from './repere';
 import { repondre, type ContexteQuestion, type Outil } from './repondre';
@@ -51,9 +51,6 @@ export class BulleAgent extends Component {
      * de son ouverture à celui-ci avant de toucher à quoi que ce soit.
      */
     private ouverture = 0;
-
-    /** L'animation d'ouverture en cours, à annuler si on ferme pendant. */
-    private eclosion: Eclosion | null = null;
 
     private readonly repere: Repere;
     /** La barre et sa tête de chat : la bulle se pose à côté, alignée sur le bouton. */
@@ -244,7 +241,9 @@ export class BulleAgent extends Component {
             this.load();
             this.poser();
             // La bulle sort du bouton tête de chat, ou de l'icône (eclosion.ts).
-            this.eclosion = eclore(this.seule?.depuis ?? this.barre().chatEl, this.dom);
+            // Fermée pendant l'animation : `Component` l'annule à l'unload.
+            const eclosion = eclore(this.seule?.depuis ?? this.barre().chatEl, this.dom);
+            this.register(() => eclosion.annuler());
         }
         // preventScroll : le champ est déjà à l'écran, à côté de la barre.
         this.champEl.focus({ preventScroll: true });
@@ -275,8 +274,6 @@ export class BulleAgent extends Component {
         this.origine = null;
         this.bilan = null;
         this.microEl.hidden = true;
-        this.eclosion?.annuler();
-        this.eclosion = null;
         this.dom.style.opacity = '';
         this.fenetre.retirer();
         this.filEl.replaceChildren();
