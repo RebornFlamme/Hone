@@ -622,6 +622,53 @@
     cursor: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none' stroke-linecap='round' stroke-linejoin='round'%3E%3Cg stroke='white' stroke-width='4'%3E%3Cpath d='M21 21H8a2 2 0 0 1-1.42-.587l-3.994-3.999a2 2 0 0 1 0-2.828l10-10a2 2 0 0 1 2.829 0l5.999 6a2 2 0 0 1 0 2.828L12.834 21'/%3E%3Cpath d='m5.082 11.09 8.828 8.828'/%3E%3C/g%3E%3Cg stroke='black' stroke-width='2'%3E%3Cpath d='M21 21H8a2 2 0 0 1-1.42-.587l-3.994-3.999a2 2 0 0 1 0-2.828l10-10a2 2 0 0 1 2.829 0l5.999 6a2 2 0 0 1 0 2.828L12.834 21'/%3E%3Cpath d='m5.082 11.09 8.828 8.828'/%3E%3C/g%3E%3C/svg%3E") 5 18, cell;
 }
 
+/* ── La pastille choisie dans la barre d'annotation ────────────────────────
+   Pas l'agent lui-même non plus. Le cœur marque la couleur et l'épaisseur
+   choisies d'un carré à bordure accent autour d'un rond ; on le remplace par
+   un anneau de la couleur de la pastille, détaché d'elle par un écart vide
+   (façon Apple Notes). L'anneau est un `::after` qui hérite du fond de la
+   pastille, posé inline par `setOptions`, et creusé par un masque : l'écart ne
+   dépend pas du fond de la barre, il tient sur les deux thèmes. Diamètre fixe
+   de 20 px, pour que les trois épaisseurs aient le même anneau. Les options à
+   icône gardent le marquage du cœur. */
+.toolbar-option.is-active:has(> .toolbar-option-dot),
+.toolbar-option.is-active:has(> .toolbar-option-dot):hover {
+    border-color: transparent;
+    background: transparent;
+}
+
+.toolbar-option > .toolbar-option-dot {
+    position: relative;
+}
+
+.toolbar-option > .toolbar-option-dot::after {
+    content: '';
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    background: inherit;
+    -webkit-mask: radial-gradient(closest-side, transparent calc(100% - 1.5px), #000 calc(100% - 1px));
+    mask: radial-gradient(closest-side, transparent calc(100% - 1.5px), #000 calc(100% - 1px));
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(0.8);
+    transition: opacity 150ms ease, transform 150ms ease;
+    pointer-events: none;
+}
+
+.toolbar-option.is-active > .toolbar-option-dot::after {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1);
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .toolbar-option > .toolbar-option-dot::after {
+        transition: none;
+    }
+}
+
 /* ── Le chat et les cartes en widget (widget.ts) ───────────────────────────
    L'en-tête se tient pour déplacer ; une bande invisible le long de chaque
    bord et de chaque coin agrandit, et le curseur montre dans quel sens. */
