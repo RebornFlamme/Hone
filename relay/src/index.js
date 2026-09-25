@@ -1,5 +1,6 @@
 import {DurableObject} from "cloudflare:workers"; 
 
+const OTHER = {phone : "desktop", desktop: "phone"};
 
 export default {
     async fetch(request, env){
@@ -19,6 +20,11 @@ export default {
             return new Response("Paramètres invalides", {status : 400});
         }
             
+        const head = (request.headers.get("upgrade"))?.toLowerCase();
+        if (head != "websocket"){
+            return  new Response("Upgrade required", {status : 426});
+        }
+
         const identifiant = env.SESSIONS.idFromName(id);
         const stub = env.SESSIONS.get(identifiant);
         return stub.fetch(request)
@@ -28,11 +34,22 @@ export default {
 
 
 export class Session extends DurableObject{
-    count = 0; // provisoire : pour vérifier qu'on retombe sur le même salon
+    
 
     async fetch(request){
-        this.count++;
-        return new Response(`Bienvenue dans le salon, visite n°${this.count}`)
+        const [client, server] = Object.values(new WebSocketPair());
+        const role = new URL(request.url).searchParams.get("role");
+        this.ctx.acceptWebSocket(server, [role]);
+        return new Response(null, {status : 101, webSocket: client })
+    }
+
+    webSocketMessage(ws, message){
+        const role = this.ctx.getTags(ws)[0];
+        const destinataires = this.ctx.getWebSockets(OTHER[role]);
+        for (const dest of destinataires){
+            dest.send(message)
+
+        }
     }
 }
 
