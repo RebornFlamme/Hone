@@ -48,7 +48,8 @@ async function lancer(): Promise<Harnais> {
     await mkdir(vault, { recursive: true });
     await mkdir(userData, { recursive: true });
     await writeFile(path.join(vault, 'note.md'), CONTENU, 'utf8');
-    await cp('/Users/philippinebiojout/Documents/IA/fragment-notes/.fragment/plugins/agent', path.join(vault, '.fragment/plugins/agent'), { recursive: true, filter: (src) => !src.includes('node_modules') });
+    await cp('/Users/philippinebiojout/Documents/IA/fragment-notes/.fragment/plugins/agent', path.join(vault, '.fragment/plugins/agent'), { recursive: true, // Ni node_modules, ni le .env (la clé ne sort pas du plugin : sans lui, l'agent répond en factice), ni le journal des coûts.
+        filter: (src) => !src.includes('node_modules') && !/[\\/](\.env|couts\.jsonl)$/.test(src) });
     await writeFile(path.join(userData, 'config.json'), JSON.stringify({ vaultRoot: vault }), 'utf8');
 
     const electronApp = await _electron.launch({
