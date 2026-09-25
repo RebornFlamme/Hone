@@ -323,3 +323,173 @@ test('micro refusé : la pilule le dit, et sa croix la ferme', async () => {
     await voix(page).locator('[aria-label="Fermer"]').click();
     await expect(voix(page)).toHaveCount(0);
 });
+
+// ── Le bilan, la trace dans la marge, la reprise au micro ──────────────────
+
+const carte = (page: Page) => page.locator('.agent-action-carte');
+const bulle = (page: Page) => page.locator('.agent-bulle');
+const traces = (page: Page) => page.locator('.agent-trace');
+
+/** Un tour de parole complet : on parle, ■, l'agent répond, la pilule écoute de nouveau. */
+async function unTour(page: Page): Promise<void> {
+    await expect(voix(page)).toHaveAttribute('data-etat', 'ecoute', { timeout: 4_000 });
+    await volume(page, 1);
+    await page.waitForTimeout(300);
+    await stop(page).click();
+    await expect(voix(page)).toHaveAttribute('data-etat', 'repond', { timeout: 4_000 });
+    await expect(voix(page)).toHaveAttribute('data-etat', 'ecoute', { timeout: 4_000 });
+}
+
+/** La croix de la pilule, puis la carte du bilan arrivée. */
+async function fermerVoix(page: Page): Promise<void> {
+    await voix(page).locator('[aria-label="Fermer"]').click();
+    await expect(voix(page)).toHaveCount(0);
+    await expect(carte(page)).toBeVisible({ timeout: 4_000 });
+}
+
+test('après un tour, la croix de la pilule ouvre la carte du bilan', async () => {
+    const { page } = h;
+    await simulerAudio(page);
+    await ouvrirVoix(page);
+    await unTour(page);
+    await voix(page).locator('[aria-label="Fermer"]').click();
+    // Le rond du micro tourne pendant que le bilan s'écrit.
+    await expect(page.locator('.agent-action-cercle')).toBeVisible();
+    await expect(carte(page)).toBeVisible({ timeout: 4_000 });
+    await expect(carte(page).locator('.agent-action-titre')).toHaveText('Bilan');
+    await expect(carte(page).locator('.agent-action-corps')).toContainText('1 tour de parole');
+    // Le passage reste surligné tant que la carte est ouverte.
+    await expect(page.locator('.agent-zone').first()).toBeAttached();
+});
+
+test('sans aucun tour, la croix ne laisse ni bilan ni trace', async () => {
+    const { page } = h;
+    await simulerAudio(page);
+    await ouvrirVoix(page);
+    await attendrePosee(page);
+    await voix(page).locator('[aria-label="Fermer"]').click();
+    await page.waitForTimeout(1_500);
+    await expect(carte(page)).toHaveCount(0);
+    await expect(page.locator('.agent-action-cercle')).toHaveCount(0);
+    await expect(traces(page)).toHaveCount(0);
+});
+
+test('la croix du bilan laisse un micro dans la marge gauche, qui rouvre la discussion par écrit', async () => {
+    const { page } = h;
+    await simulerAudio(page);
+    await ouvrirVoix(page);
+    await unTour(page);
+    await fermerVoix(page);
+    await carte(page).locator('[aria-label="Fermer"]').click();
+    await expect(carte(page)).toHaveCount(0);
+
+    await expect(traces(page)).toHaveCount(1);
+    await expect(traces(page)).toHaveAttribute('aria-label', /^Discussion orale : /);
+    // Dans la marge GAUCHE : avant le début de la ligne.
+    const ligne3 = await ligne(page, 'Ligne 3 :');
+    expect((await traces(page).boundingBox())!.x).toBeLessThan(ligne3.x);
+
+    await traces(page).click();
+    await expect(bulle(page)).toBeVisible();
+    await expect(barre(page)).toHaveCount(0);
+    await expect(bulle(page).locator('.agent-bilan')).toContainText('Bilan');
+    await expect(bulle(page).locator('.agent-bilan')).toContainText('1 tour de parole');
+    // Le fil s'ouvre sur le bilan, pas sur la fin.
+    expect(await bulle(page).locator('.agent-bulle-fil').evaluate((el) => el.scrollTop)).toBe(0);
+    const messages = bulle(page).locator('.agent-message');
+    await expect(messages).toHaveCount(2);
+    await expect(messages.nth(0)).toHaveClass(/mod-moi/);
+    await expect(messages.nth(0)).toHaveText('Transcription factice du tour 1.');
+    await expect(messages.nth(1)).toContainText('numéro 1');
+    await expect(bulle(page).locator('.agent-bulle-micro')).toBeVisible();
+    await expect(bulle(page).locator('.agent-pied-poubelle')).toBeVisible();
+
+    // Refermée sans rien changer : toujours une seule trace, toujours orale.
+    await bulle(page).locator('.agent-bulle-fermer').click();
+    await expect(traces(page)).toHaveCount(1);
+    await expect(traces(page)).toHaveAttribute('aria-label', /^Discussion orale : /);
+});
+
+test('le micro du chat reprend la discussion à voix haute, et le nouveau bilan remplace l\'ancien', async () => {
+    const { page } = h;
+    await simulerAudio(page);
+    await ouvrirVoix(page);
+    await unTour(page);
+    await fermerVoix(page);
+    await carte(page).locator('[aria-label="Fermer"]').click();
+    await traces(page).click();
+    await expect(bulle(page)).toBeVisible();
+
+    await bulle(page).locator('.agent-bulle-micro').click();
+    await expect(bulle(page)).toHaveCount(0);
+    await expect(voix(page)).toBeVisible();
+    await unTour(page);
+    // L'historique a gardé le premier tour.
+    const dits = await page.evaluate(() => (window as unknown as { __voix: any }).__voix.dits as string[]);
+    expect(dits.at(-1)).toContain('numéro 2');
+
+    await fermerVoix(page);
+    await expect(carte(page).locator('.agent-action-corps')).toContainText('2 tours de parole');
+    await carte(page).locator('[aria-label="Fermer"]').click();
+    await expect(traces(page)).toHaveCount(1);
+
+    await traces(page).click();
+    await expect(bulle(page).locator('.agent-bilan')).toContainText('2 tours de parole');
+    await expect(bulle(page).locator('.agent-message')).toHaveCount(4);
+});
+
+test('la tête de chat de la carte bilan la change en chat oral', async () => {
+    const { page } = h;
+    await simulerAudio(page);
+    await ouvrirVoix(page);
+    await unTour(page);
+    await fermerVoix(page);
+    await carte(page).locator('.agent-pied-discuter').click();
+    await expect(carte(page)).toHaveCount(0);
+    await expect(bulle(page)).toBeVisible();
+    await expect(bulle(page).locator('.agent-bilan')).toContainText('1 tour de parole');
+    await expect(bulle(page).locator('.agent-message')).toHaveCount(2);
+    await expect(bulle(page).locator('.agent-bulle-micro')).toBeVisible();
+    // Pas venue de la marge : pas de poubelle.
+    await expect(bulle(page).locator('.agent-pied-poubelle')).toBeHidden();
+    await bulle(page).locator('.agent-bulle-fermer').click();
+    await expect(traces(page)).toHaveCount(1);
+    await expect(traces(page)).toHaveAttribute('aria-label', /^Discussion orale : /);
+});
+
+test('la poubelle d\'une discussion orale rouverte efface la trace et le trait', async () => {
+    const { page } = h;
+    await simulerAudio(page);
+    await ouvrirVoix(page);
+    await unTour(page);
+    await fermerVoix(page);
+    await carte(page).locator('[aria-label="Fermer"]').click();
+    const avant = await nbTraits(page);
+    await traces(page).click();
+    await bulle(page).locator('.agent-pied-poubelle').click();
+    await bulle(page).locator('.agent-pied-supprimer').click();
+    await expect(bulle(page)).toHaveCount(0);
+    await expect(traces(page)).toHaveCount(0);
+    expect(await nbTraits(page)).toBe(avant - 1);
+});
+
+test('reprise au micro puis croix sans un mot : pas de nouveau bilan, la trace garde l\'ancien', async () => {
+    const { page } = h;
+    await simulerAudio(page);
+    await ouvrirVoix(page);
+    await unTour(page);
+    await fermerVoix(page);
+    await carte(page).locator('[aria-label="Fermer"]').click();
+    await traces(page).click();
+    await bulle(page).locator('.agent-bulle-micro').click();
+    await expect(voix(page)).toHaveAttribute('data-etat', 'ecoute', { timeout: 4_000 });
+    await voix(page).locator('[aria-label="Fermer"]').click();
+    await expect(voix(page)).toHaveCount(0);
+    await page.waitForTimeout(1_500);
+    await expect(carte(page)).toHaveCount(0);
+    await expect(page.locator('.agent-action-cercle')).toHaveCount(0);
+    await expect(traces(page)).toHaveCount(1);
+    await traces(page).click();
+    await expect(bulle(page).locator('.agent-bilan')).toContainText('1 tour de parole');
+    await expect(bulle(page).locator('.agent-message')).toHaveCount(2);
+});

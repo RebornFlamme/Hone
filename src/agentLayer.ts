@@ -164,9 +164,15 @@ export function createAgentLayer(ctx: LayerContext): () => void {
         limites,
     });
 
-    // Une conversation fermée laisse sa trace dans la marge.
-    const bulle = new BulleAgent(ctx.app, paneEl, barre.dom, barre.chatEl, (messages, contexte, cadre, origine) => {
-        if (!suppression && contexte && trait && messages.length > 0) {
+    // Une conversation fermée laisse sa trace dans la marge. Une discussion
+    // orale relue par écrit reste orale, avec son bilan.
+    const bulle = new BulleAgent(ctx.app, paneEl, barre.dom, barre.chatEl, (messages, contexte, cadre, origine, bilan) => {
+        // Le micro du chat : la discussion repart à voix haute, rien à ranger.
+        if (enchainement) return;
+        if (!suppression && contexte && trait && bilan !== null) {
+            carnet.fermer(contexte, trait, { type: 'oral', messages, bilan }, cadre);
+        }
+        else if (!suppression && contexte && trait && messages.length > 0) {
             carnet.fermer(contexte, trait, { type: 'chat', messages, ...(origine ? { outil: origine } : {}) }, cadre);
         }
         else carnet.oublierOuverte();
@@ -179,7 +185,7 @@ export function createAgentLayer(ctx: LayerContext): () => void {
     }, {
         obstacles: () => [...barresAnnotation(), ...(barre.estOuverte() ? [boite(barre.dom)] : []), ...passage()],
         limites,
-    }, () => supprimer(), reference);
+    }, () => supprimer(), reference, () => reprendreAVoix());
 
     // La croix de la carte ferme tout, comme celle de la barre. Une réponse
     // reçue laisse sa trace dans la marge.
@@ -187,7 +193,11 @@ export function createAgentLayer(ctx: LayerContext): () => void {
         // La carte devient un chat (discuter) : ni trace, ni passage perdu.
         if (enchainement) return;
         const resultat = action.resultat();
-        if (!suppression && resultat && zone && trait) carnet.fermer(zone, trait, { type: 'outil', ...resultat }, action.cadre());
+        if (!suppression && resultat && zone && trait) {
+            carnet.fermer(zone, trait, resultat.type === 'outil'
+                ? resultat
+                : { type: 'oral', messages: resultat.messages, bilan: resultat.texte }, action.cadre());
+        }
         else carnet.oublierOuverte();
         zone = null;
         majOccupe();
@@ -197,8 +207,27 @@ export function createAgentLayer(ctx: LayerContext): () => void {
         limites,
     }, () => supprimer(), () => discuter());
 
-    // La croix de la pilule ferme tout. Pas encore de trace dans la marge.
-    const voix = new VoixAgent(ctx.app, paneEl, reference, () => {
+    // La croix de la pilule : si l'on a parlé, la pilule se résorbe dans le
+    // rond du micro, qui s'ouvre sur la carte du bilan ; la croix de la carte
+    // laisse le micro dans la marge. Fermée par le calque (une autre trace
+    // rouverte, un autre document), la discussion est gardée sans bilan.
+    //
+    // Une discussion reprise au micro puis refermée sans un mot garde son
+    // bilan : rien de neuf à résumer, pas d'appel au back.
+    const voix = new VoixAgent(ctx.app, paneEl, reference, (historique, boite, parCroix) => {
+        const reprise = voixReprise;
+        voixReprise = null;
+        const inchangee = reprise !== null && historique.length === reprise.tours;
+        if (parCroix && zone && historique.length > 0 && !inchangee) {
+            action.lancerBilan(zone, historique, boite);
+            majOccupe();
+            return;
+        }
+        if (!suppression && zone && trait && historique.length > 0) {
+            const bilan = inchangee ? reprise.bilan : 'Bilan non écrit : la discussion a été interrompue.';
+            carnet.fermer(zone, trait, { type: 'oral', messages: historique, bilan }, null);
+        }
+        else carnet.oublierOuverte();
         zone = null;
         majOccupe();
         editor.requestUpdate();
@@ -228,8 +257,37 @@ export function createAgentLayer(ctx: LayerContext): () => void {
         } finally {
             enchainement = false;
         }
-        bulle.rouvrir(zone, [{ auteur: 'agent', texte: resultat.texte }], reference, depuis, cadre,
-            { outil: resultat.outil, poubelle });
+        // Le bilan d'une discussion orale : le chat la relit par écrit.
+        if (resultat.type === 'oral') {
+            bulle.rouvrir(zone, resultat.messages, reference, depuis, cadre, { bilan: resultat.texte, poubelle });
+        } else {
+            bulle.rouvrir(zone, [{ auteur: 'agent', texte: resultat.texte }], reference, depuis, cadre,
+                { outil: resultat.outil, poubelle });
+        }
+        majOccupe();
+        editor.requestUpdate();
+    };
+
+    // ── La discussion orale reprend au micro ───────────────────────────────
+    //
+    // Le micro d'un chat oral (rouvert depuis la marge, ou né d'une carte
+    // bilan) : le chat fond dans le rond, qui s'étire en pilule avec tous les
+    // tours d'avant. La trace de la marge reste l'ouverte du carnet : le
+    // prochain bilan la met à jour, sans doublon.
+    let voixReprise: { tours: number; bilan: string } | null = null;
+    const reprendreAVoix = (): void => {
+        if (!zone) return;
+        const messages = bulle.conversation();
+        const depuis = bulle.boite();
+        const bilan = bulle.bilanOral();
+        voixReprise = bilan === null ? null : { tours: messages.length, bilan };
+        enchainement = true;
+        try {
+            bulle.fermer();
+        } finally {
+            enchainement = false;
+        }
+        voix.lancer(zone, depuis, messages);
         majOccupe();
         editor.requestUpdate();
     };
@@ -251,6 +309,10 @@ export function createAgentLayer(ctx: LayerContext): () => void {
         trait = carnet.traitDe(t);
         if (t.contenu.type === 'outil') {
             action.montrer(t.contenu.outil, t.contenu.texte, depuis, t.cadre);
+        } else if (t.contenu.type === 'oral') {
+            // La discussion relue par écrit, son bilan en tête, et le micro pour la reprendre.
+            bulle.rouvrir(zone, t.contenu.messages, reference, depuis, t.cadre,
+                { bilan: t.contenu.bilan, poubelle: true });
         } else {
             // Seulement la discussion : pas la barre, pas ses outils.
             bulle.rouvrir(zone, t.contenu.messages, reference, depuis, t.cadre,

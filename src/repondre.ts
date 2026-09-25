@@ -83,5 +83,22 @@ export async function parler(audio: Blob, contexte: ContexteQuestion, historique
     return {
         texte: `Réponse orale factice numéro ${tour}. J'ai bien reçu ${audio.size > 0 ? 'ton enregistrement' : 'un enregistrement vide'}, `
             + `sur le passage « ${extrait} ». Le back n'est pas encore branché.`,
+        transcription: `Transcription factice du tour ${tour}.`,
     };
+}
+
+/** Le délai simulé du bilan : assez pour voir le rond tourner. */
+const LATENCE_BILAN = 1200;
+
+/**
+ * Le bilan écrit d'une discussion orale, à sa fermeture : les points clés de
+ * ce qui s'est dit. `historique` : tous les tours, en texte.
+ */
+export async function resumerOral(historique: Message[], contexte: ContexteQuestion): Promise<string> {
+    await new Promise((r) => setTimeout(r, LATENCE_BILAN));
+    const tours = historique.filter((m) => m.auteur === 'moi').length;
+    const extrait = contexte.texte.length > 40 ? `${contexte.texte.slice(0, 40)}…` : contexte.texte;
+    return `• Bilan factice : le back n'est pas encore branché.\n`
+        + `• ${tours} tour${tours > 1 ? 's' : ''} de parole sur « ${extrait} ».\n`
+        + `• Le back donnera ici les points clés de la discussion.`;
 }

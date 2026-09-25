@@ -7,8 +7,8 @@ import type { Cadre } from './widget';
 // ═══════════════════════════════════════════════════════════════════════════
 //  L'historique de l'agent, dans la marge. Une carte d'outil ou une
 //  conversation qu'on ferme laisse une petite icône dans la marge gauche, à la
-//  hauteur du passage : l'icône de l'outil (Traduire, Définir…) ou la tête de
-//  chat. Un clic dessus rouvre ce que l'agent avait répondu.
+//  hauteur du passage : l'icône de l'outil (Traduire, Définir…), la tête de
+//  chat, ou le micro d'une discussion orale. Un clic dessus rouvre ce que l'agent avait répondu.
 //
 //  ★ POURQUOI la marge GAUCHE : la droite est celle de la barre d'annotation,
 //    rangée là par défaut, et la colonne de texte y finit bien après la fin
@@ -31,7 +31,9 @@ export type Contenu =
      * chat de sa carte). Son premier message est cette réponse, et la marge
      * garde l'icône de l'outil.
      */
-    | { type: 'chat'; messages: Message[]; outil?: Outil };
+    | { type: 'chat'; messages: Message[]; outil?: Outil }
+    /** Une discussion orale : ses tours transcrits, et le bilan écrit à sa fermeture. */
+    | { type: 'oral'; messages: Message[]; bilan: string };
 
 export interface Message {
     auteur: 'moi' | 'agent';
@@ -225,12 +227,14 @@ export class CarnetTraces {
         el.classList.add('agent-trace');
         // Une trace outil devenue conversation garde son icône : l'élément est
         // en cache, et c'est le même outil.
-        const outil = t.contenu.outil;
-        const libelle = outil ? OUTILS[outil].libelle : 'Conversation';
+        const outil = t.contenu.type === 'oral' ? undefined : t.contenu.outil;
+        const { libelle, icone } = t.contenu.type === 'oral'
+            ? { libelle: 'Discussion orale', icone: 'mic' }
+            : outil ? OUTILS[outil] : { libelle: 'Conversation', icone: 'cat' };
         const extrait = t.zone.texte.replace(/\s+/g, ' ').trim();
         el.setAttribute('aria-label', `${libelle} : ${extrait}`);
         el.title = `${libelle} : « ${extrait.length > 60 ? `${extrait.slice(0, 60)}…` : extrait} »`;
-        setIcon(this.app, el, outil ? OUTILS[outil].icone : 'cat');
+        setIcon(this.app, el, icone);
         el.style.position = 'absolute';
         el.style.pointerEvents = 'auto'; // le plan document est pointer-events:none
         el.addEventListener('click', () => {

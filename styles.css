@@ -123,6 +123,7 @@
 }
 
 .agent-bulle-fermer,
+.agent-bulle-micro,
 .agent-bulle-envoyer {
     display: inline-flex;
     align-items: center;
@@ -152,6 +153,7 @@
 }
 
 .agent-bulle-fermer:focus-visible,
+.agent-bulle-micro:focus-visible,
 .agent-bulle-envoyer:focus-visible {
     outline: 2px solid var(--color-accent);
     outline-offset: 1px;
@@ -198,6 +200,26 @@
     color: #e93147;   /* le rouge des entrées destructives du menu */
 }
 
+/* Le bilan d'une discussion orale relue par écrit : en tête du fil, sur toute
+   sa largeur, filet d'accent comme la citation de l'en-tête. */
+.agent-bilan {
+    padding: 8px 10px;
+    border-left: 2px solid var(--color-accent);
+    border-radius: 0 8px 8px 0;
+    background: rgba(128, 128, 128, 0.10);
+    line-height: 1.45;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    user-select: text;
+}
+
+.agent-bilan-titre {
+    margin-bottom: 2px;
+    color: var(--text-muted);
+    font-size: var(--font-ui-small);
+    font-weight: 600;
+}
+
 /* ── La saisie ──────────────────────────────────────────────────────────── */
 
 .agent-bulle-saisie {
@@ -235,6 +257,27 @@
     border-radius: 8px;
     background: var(--color-accent);
     color: #ffffff;
+}
+
+.agent-bulle-micro {
+    width: 30px;
+    height: 30px;
+    border-radius: 8px;
+    background: rgba(128, 128, 128, 0.16);
+    color: var(--text-normal);
+}
+
+.agent-bulle-micro:hover {
+    background: rgba(128, 128, 128, 0.28);
+}
+
+.agent-bulle-micro[hidden] {
+    display: none;
+}
+
+.agent-bulle-micro svg {
+    width: 16px;
+    height: 16px;
 }
 
 .agent-bulle-envoyer:disabled {

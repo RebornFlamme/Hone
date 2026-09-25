@@ -5,8 +5,9 @@ import {
 import { Component, setIcon, type App } from 'fragment';
 import { eclore, ressort, type Eclosion } from './eclosion';
 import { eviter, type Boite } from './eviter';
-import { agir, type ContexteQuestion, type Outil } from './repondre';
+import { agir, resumerOral, type ContexteQuestion, type Outil } from './repondre';
 import { PiedSupprimer } from './supprimer';
+import type { Message } from './traces';
 import { Widget, type Cadre } from './widget';
 
 /** Les cinq outils : leur icône Lucide et leur nom, dans l'ordre de la barre. */
@@ -17,6 +18,17 @@ export const OUTILS: Record<Outil, { icone: string; libelle: string }> = {
     traduire: { icone: 'languages', libelle: 'Traduire' },
     resumer: { icone: 'list', libelle: 'Résumer' },
 };
+
+/**
+ * Ce que montre la carte : la réponse d'un outil, ou le bilan d'une discussion
+ * orale avec les tours dont il est tiré.
+ */
+export type Resultat =
+    | { type: 'outil'; outil: Outil; texte: string }
+    | { type: 'oral'; messages: Message[]; texte: string };
+
+/** Le rond et la carte du bilan d'une discussion orale. */
+const BILAN = { icone: 'mic', libelle: 'Bilan' };
 
 /** Le ressort de la résorption : le même, vif, que la rallonge. */
 const RAIDEUR = 700;
@@ -29,6 +41,9 @@ const AMORTISSEMENT = 48;
  * l'icône de l'outil, cerclé d'un arc qui tourne : l'agent réfléchit. Puis,
  * la réponse arrivée, le rond s'ouvre en carte (la goutte d'eclosion.ts,
  * comme le chat) : l'icône, le nom de l'outil, une croix, la réponse.
+ *
+ * Sert aussi au bilan d'une discussion orale (lancerBilan) : la pilule se
+ * résorbe dans le rond du micro, et la carte porte le bilan écrit.
  *
  * Comme la barre et la bulle, elle ne se ferme QU'À LA CROIX de la carte.
  * Pendant l'attente, il n'y a rien à fermer : tout a fondu dans le rond.
@@ -54,8 +69,8 @@ export class ActionAgent extends Component {
      */
     private decalageCarte = 0;
     private animations: { annuler(): void }[] = [];
-    /** L'outil et la réponse montrés par la carte, lus par le calque à la fermeture. */
-    private montre: { outil: Outil; texte: string } | null = null;
+    /** Ce que montre la carte, lu par le calque à la fermeture. */
+    private montre: Resultat | null = null;
 
     private readonly app: App;
     private readonly parentEl: HTMLElement;
@@ -128,7 +143,7 @@ export class ActionAgent extends Component {
     }
 
     /** La réponse que la carte montre, ou null (l'agent réfléchit encore, ou a échoué). */
-    resultat(): { outil: Outil; texte: string } | null {
+    resultat(): Resultat | null {
         return this.montre;
     }
 
@@ -150,9 +165,35 @@ export class ActionAgent extends Component {
      * juste avant qu'elle ne soit retirée : le rond en sort.
      */
     lancer(outil: Outil, contexte: ContexteQuestion, depuis: DOMRect): void {
-        const { libelle } = OUTILS[outil];
-        this.cercleEl.setAttribute('aria-label', `${libelle} : l'agent réfléchit`);
-        this.preparer(outil);
+        this.attendre(OUTILS[outil], depuis, agir(outil, contexte),
+            (texte) => ({ type: 'outil', outil, texte }));
+    }
+
+    /**
+     * Le bilan d'une discussion orale : `depuis` est la boîte CLIENT de la
+     * pilule, juste avant son retrait. Le rond du micro en sort.
+     */
+    lancerBilan(contexte: ContexteQuestion, messages: Message[], depuis: DOMRect): void {
+        // Sans bilan, la discussion reste gardée : on ne perd pas ce qui s'est dit.
+        this.attendre(BILAN, depuis, resumerOral(messages, contexte),
+            (texte) => ({ type: 'oral', messages, texte }), 'Bilan indisponible.');
+    }
+
+    /** Le rond tourne pendant `reponse`, puis s'ouvre en carte. */
+    private attendre(
+        aspect: { icone: string; libelle: string }, depuis: DOMRect,
+        reponse: Promise<string>, resultat: (texte: string) => Resultat,
+        /**
+         * Sans lui, une réponse en attente ou en erreur ne laisse rien ; avec
+         * lui, elle est gardée avec ce texte.
+         */
+        texteSiErreur?: string,
+    ): void {
+        this.cercleEl.setAttribute('aria-label', `${aspect.libelle} : l'agent réfléchit`);
+        this.preparer(aspect);
+        // Gardée dès maintenant : fermée pendant que le rond tourne, la
+        // discussion laisse quand même sa trace.
+        if (texteSiErreur !== undefined) this.montre = resultat(texteSiErreur);
 
         this.lancement++;
         const lancement = this.lancement;
@@ -166,14 +207,15 @@ export class ActionAgent extends Component {
             this.animations.push(resorber(depuis, this.cercleEl));
         });
 
-        agir(outil, contexte)
-            .then((reponse) => {
+        reponse
+            .then((texte) => {
                 if (!estCourant()) return;
-                this.montre = { outil, texte: reponse };
-                this.ouvrirCarte(reponse, false);
+                this.montre = resultat(texte);
+                this.ouvrirCarte(texte, false);
             })
             .catch((err: unknown) => {
                 if (estCourant()) {
+                    if (texteSiErreur !== undefined) this.montre = resultat(texteSiErreur);
                     this.ouvrirCarte(`L'agent n'a pas pu répondre : ${err instanceof Error ? err.message : String(err)}`, true);
                 }
             });
@@ -184,11 +226,11 @@ export class ActionAgent extends Component {
      * pas de rond, la carte sort directement de l'icône.
      */
     montrer(outil: Outil, texte: string, depuis: HTMLElement, cadre: Cadre | null): void {
-        this.preparer(outil);
+        this.preparer(OUTILS[outil]);
         this.widget.reprendre(cadre);
         this.pied.montrer(true);
         this.pied.montrerDiscuter(true);
-        this.montre = { outil, texte };
+        this.montre = { type: 'outil', outil, texte };
         this.corpsEl.textContent = texte;
         this.lancement++;
         const lancement = this.lancement;
@@ -206,9 +248,8 @@ export class ActionAgent extends Component {
         this.unload();
     }
 
-    /** L'icône et le nom de l'outil sur le rond et la carte, le corps vidé. */
-    private preparer(outil: Outil): void {
-        const { icone, libelle } = OUTILS[outil];
+    /** L'icône et le nom (de l'outil, ou du bilan) sur le rond et la carte, le corps vidé. */
+    private preparer({ icone, libelle }: { icone: string; libelle: string }): void {
         setIcon(this.app, this.iconeCercleEl, icone);
         setIcon(this.app, this.iconeCarteEl, icone);
         this.titreEl.textContent = libelle;

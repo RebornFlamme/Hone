@@ -42,6 +42,8 @@ export class BulleAgent extends Component {
     private readonly filEl: HTMLElement;
     private readonly champEl: HTMLTextAreaElement;
     private readonly envoyerEl: HTMLButtonElement;
+    /** Le micro de la saisie : seulement sur une discussion orale, qu'il reprend. */
+    private readonly microEl: HTMLButtonElement;
     private readonly pied: PiedSupprimer;
     /** Déplacer et agrandir la bulle (widget.ts). */
     private readonly widget: Widget;
@@ -76,10 +78,15 @@ export class BulleAgent extends Component {
     /** L'outil dont la conversation continue la réponse, null pour un chat né de la barre. */
     private origine: Outil | null = null;
     /**
+     * Le bilan d'une discussion orale relue par écrit, null sinon. Posé en
+     * tête du fil, et rendu au calque à la fermeture : la trace reste orale.
+     */
+    private bilan: string | null = null;
+    /**
      * Prévenu à chaque fermeture, avec la conversation et son passage tels
      * qu'ils étaient : le calque en garde une trace dans la marge (traces.ts).
      */
-    private readonly onFermer: (messages: Message[], contexte: ContexteQuestion | null, cadre: Cadre | null, origine: Outil | null) => void;
+    private readonly onFermer: (messages: Message[], contexte: ContexteQuestion | null, cadre: Cadre | null, origine: Outil | null, bilan: string | null) => void;
 
     /** Ce que la bulle ne doit jamais recouvrir, et le cadre où elle reste (voir eviter.ts). */
     private readonly evitement: { obstacles: () => Boite[]; limites: () => Boite };
@@ -89,10 +96,11 @@ export class BulleAgent extends Component {
         parentEl: HTMLElement,
         reference: ReferenceElement,
         alignEl: HTMLElement,
-        onFermer: (messages: Message[], contexte: ContexteQuestion | null, cadre: Cadre | null, origine: Outil | null) => void,
+        onFermer: (messages: Message[], contexte: ContexteQuestion | null, cadre: Cadre | null, origine: Outil | null, bilan: string | null) => void,
         evitement: { obstacles: () => Boite[]; limites: () => Boite },
         onSupprimer: () => void,
         trait: ReferenceElement,
+        onMicro: () => void,
     ) {
         super();
         this.parentEl = parentEl;
@@ -151,6 +159,15 @@ export class BulleAgent extends Component {
             }
         });
 
+        this.microEl = saisie.appendChild(document.createElement('button'));
+        this.microEl.type = 'button';
+        this.microEl.classList.add('agent-bulle-micro');
+        this.microEl.setAttribute('aria-label', 'Reprendre la discussion à voix haute');
+        this.microEl.title = 'Reprendre la discussion à voix haute';
+        this.microEl.hidden = true;
+        setIcon(app, this.microEl, 'mic');
+        this.microEl.addEventListener('click', () => onMicro());
+
         this.envoyerEl = saisie.appendChild(document.createElement('button'));
         this.envoyerEl.type = 'submit';
         this.envoyerEl.classList.add('agent-bulle-envoyer');
@@ -184,7 +201,7 @@ export class BulleAgent extends Component {
      */
     conversation(): Message[] {
         return [...this.filEl.children]
-            .filter((el) => !el.classList.contains('is-pending'))
+            .filter((el) => el.classList.contains('agent-message') && !el.classList.contains('is-pending'))
             .map((el) => ({
                 auteur: el.classList.contains('mod-moi') ? 'moi' : 'agent',
                 texte: el.textContent ?? '',
@@ -200,20 +217,39 @@ export class BulleAgent extends Component {
      * Sert aussi à la carte d'un outil qui devient un chat : `depuis` est alors
      * la boîte de sa tête de chat, déjà retirée, et `outil` son outil. La
      * poubelle n'y est que si la carte venait de la marge.
+     *
+     * `bilan` : une discussion orale relue par écrit. Le bilan ouvre le fil,
+     * les tours transcrits suivent, et un micro à côté d'Envoyer la reprend à
+     * voix haute (le calque, `onMicro`).
      */
     rouvrir(
         contexte: ContexteQuestion, messages: Message[], reference: ReferenceElement, depuis: HTMLElement | DOMRect,
-        cadre: Cadre | null, options: { outil?: Outil; poubelle: boolean },
+        cadre: Cadre | null, options: { outil?: Outil; bilan?: string; poubelle: boolean },
     ): void {
         this.fermer();
         this.seule = { reference, depuis };
         this.origine = options.outil ?? null;
+        this.bilan = options.bilan ?? null;
         // Là où on l'avait laissée, à la taille qu'on lui avait donnée.
         this.widget.reprendre(cadre);
         this.ouvrir(contexte);
         this.filEl.replaceChildren();
+        if (this.bilan !== null) this.ajouterBilan(this.bilan);
+        this.microEl.hidden = this.bilan === null;
         for (const m of messages) this.ajouterMessage(m.auteur, m.texte);
+        // Une discussion orale se relit depuis son bilan, pas depuis la fin.
+        if (this.bilan !== null) this.filEl.scrollTop = 0;
         this.pied.montrer(options.poubelle);
+    }
+
+    /** Le bilan d'une discussion orale relue par écrit, null pour un chat ordinaire. */
+    bilanOral(): string | null {
+        return this.bilan;
+    }
+
+    /** La boîte CLIENT de la bulle, à lire avant de la fermer : le rond du micro en sort. */
+    boite(): DOMRect {
+        return this.dom.getBoundingClientRect();
     }
 
     /** Ouverte seule, depuis la marge : sa croix ferme tout, il n'y a pas de barre. */
@@ -287,7 +323,10 @@ export class BulleAgent extends Component {
         const contexte = this.contexte;
         const cadre = this.widget.cadre;
         const origine = this.origine;
+        const bilan = this.bilan;
         this.origine = null;
+        this.bilan = null;
+        this.microEl.hidden = true;
         this.widget.oublier();
         this.eclosion?.annuler();
         this.eclosion = null;
@@ -303,7 +342,7 @@ export class BulleAgent extends Component {
         this.enAttente = false;
         this.seule = null;
         this.envoyerEl.disabled = false;
-        this.onFermer(messages, contexte, cadre, origine);
+        this.onFermer(messages, contexte, cadre, origine, bilan);
     }
 
     /**
@@ -385,6 +424,16 @@ export class BulleAgent extends Component {
         }
         if (!estCourante()) return;
         this.filEl.scrollTop = this.filEl.scrollHeight;
+    }
+
+    /** Le bilan d'une discussion orale, en tête du fil : pas un message, conversation() l'ignore. */
+    private ajouterBilan(texte: string): void {
+        const el = this.filEl.appendChild(document.createElement('div'));
+        el.classList.add('agent-bilan');
+        const titre = el.appendChild(document.createElement('div'));
+        titre.classList.add('agent-bilan-titre');
+        titre.textContent = 'Bilan';
+        el.appendChild(document.createElement('div')).textContent = texte;
     }
 
     private ajouterMessage(auteur: 'moi' | 'agent', texte: string): HTMLElement {

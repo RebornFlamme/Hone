@@ -62,7 +62,8 @@ type Etat = 'rond' | 'ecoute' | 'reflechit' | 'repond' | 'refuse';
  * coupé pendant que l'agent parle, il ne s'entend pas lui-même.
  *
  * Comme la barre, le chat et les cartes, elle ne se ferme QU'À SA CROIX. Le
- * micro est rendu à la fermeture.
+ * micro est rendu à la fermeture, et les tours passent au calque, qui en
+ * fait écrire le bilan (ActionAgent.lancerBilan).
  */
 export class VoixAgent extends Component {
 
@@ -93,14 +94,22 @@ export class VoixAgent extends Component {
 
     private readonly parentEl: HTMLElement;
     private readonly reference: VirtualElement;
-    private readonly onFermer: () => void;
+    /**
+     * Prévenu à la fermeture, avec les tours de la discussion et la boîte
+     * CLIENT de la pilule juste avant son retrait : le bilan en sort.
+     * `parCroix` : faux quand le calque la ferme (une autre trace rouverte,
+     * un autre document, la vue démontée).
+     */
+    private readonly onFermer: (historique: Message[], boite: DOMRect, parCroix: boolean) => void;
+    /** Fermée par sa croix : seul ce geste demande un bilan. */
+    private parCroix = false;
     private readonly evitement: { obstacles: () => Boite[]; limites: () => Boite };
 
     constructor(
         app: App,
         parentEl: HTMLElement,
         reference: VirtualElement,
-        onFermer: () => void,
+        onFermer: (historique: Message[], boite: DOMRect, parCroix: boolean) => void,
         evitement: { obstacles: () => Boite[]; limites: () => Boite },
     ) {
         super();
@@ -128,7 +137,10 @@ export class VoixAgent extends Component {
         fermerEl.setAttribute('aria-label', 'Fermer');
         fermerEl.title = 'Fermer';
         setIcon(app, fermerEl, 'x');
-        fermerEl.addEventListener('click', () => this.fermer());
+        fermerEl.addEventListener('click', () => {
+            this.parCroix = true;
+            this.fermer();
+        });
 
         this.contenuEl.appendChild(this.onde.el);
 
@@ -158,15 +170,16 @@ export class VoixAgent extends Component {
     }
 
     /**
-     * Ouvre la discussion sur `zone`. `depuis` est la boîte CLIENT de la
-     * barre, juste avant qu'elle ne soit retirée : le rond en sort.
+     * Ouvre la discussion sur `zone`. `depuis` est la boîte CLIENT de ce qui
+     * fond dans le rond (la barre, ou le chat d'une discussion reprise), juste
+     * avant son retrait. `historique` : les tours d'une discussion qu'on reprend.
      */
-    lancer(zone: ContexteQuestion, depuis: DOMRect): void {
+    lancer(zone: ContexteQuestion, depuis: DOMRect, historique: Message[] = []): void {
         this.lancement++;
         const lancement = this.lancement;
         const estCourant = (): boolean => this._loaded && this.lancement === lancement;
         this.zone = { ...zone };
-        this.historique = [];
+        this.historique = [...historique];
         this.poserEtat('rond');
 
         this.el.style.opacity = '0';
@@ -194,6 +207,11 @@ export class VoixAgent extends Component {
     }
 
     onunload(): void {
+        const historique = this.historique;
+        const boite = this.el.getBoundingClientRect();
+        const parCroix = this.parCroix;
+        this.parCroix = false;
+        this.historique = [];
         this.lancement++;
         for (const a of this.animations) a.annuler();
         this.animations = [];
@@ -214,7 +232,7 @@ export class VoixAgent extends Component {
         this.el.style.transition = '';
         this.el.classList.remove('est-posee');
         this.poserEtat('rond');
-        this.onFermer();
+        this.onFermer(historique, boite, parCroix);
     }
 
     /** Public, pour les mouvements que autoUpdate ne voit pas (voir agentLayer). */

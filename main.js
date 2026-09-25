@@ -1660,8 +1660,18 @@ async function parler(audio, contexte, historique = []) {
   const tour = historique.filter((m) => m.auteur === "moi").length + 1;
   const extrait = contexte.texte.length > 40 ? `${contexte.texte.slice(0, 40)}\u2026` : contexte.texte;
   return {
-    texte: `R\xE9ponse orale factice num\xE9ro ${tour}. J'ai bien re\xE7u ${audio.size > 0 ? "ton enregistrement" : "un enregistrement vide"}, sur le passage \xAB ${extrait} \xBB. Le back n'est pas encore branch\xE9.`
+    texte: `R\xE9ponse orale factice num\xE9ro ${tour}. J'ai bien re\xE7u ${audio.size > 0 ? "ton enregistrement" : "un enregistrement vide"}, sur le passage \xAB ${extrait} \xBB. Le back n'est pas encore branch\xE9.`,
+    transcription: `Transcription factice du tour ${tour}.`
   };
+}
+var LATENCE_BILAN = 1200;
+async function resumerOral(historique, contexte) {
+  await new Promise((r) => setTimeout(r, LATENCE_BILAN));
+  const tours = historique.filter((m) => m.auteur === "moi").length;
+  const extrait = contexte.texte.length > 40 ? `${contexte.texte.slice(0, 40)}\u2026` : contexte.texte;
+  return `\u2022 Bilan factice : le back n'est pas encore branch\xE9.
+\u2022 ${tours} tour${tours > 1 ? "s" : ""} de parole sur \xAB ${extrait} \xBB.
+\u2022 Le back donnera ici les points cl\xE9s de la discussion.`;
 }
 
 // src/supprimer.ts
@@ -1923,6 +1933,7 @@ var OUTILS = {
   traduire: { icone: "languages", libelle: "Traduire" },
   resumer: { icone: "list", libelle: "R\xE9sumer" }
 };
+var BILAN = { icone: "mic", libelle: "Bilan" };
 var RAIDEUR2 = 700;
 var AMORTISSEMENT2 = 48;
 var ActionAgent = class extends import_fragment2.Component {
@@ -1944,7 +1955,7 @@ var ActionAgent = class extends import_fragment2.Component {
    */
   decalageCarte = 0;
   animations = [];
-  /** L'outil et la réponse montrés par la carte, lus par le calque à la fermeture. */
+  /** Ce que montre la carte, lu par le calque à la fermeture. */
   montre = null;
   app;
   parentEl;
@@ -2014,9 +2025,31 @@ var ActionAgent = class extends import_fragment2.Component {
    * juste avant qu'elle ne soit retirée : le rond en sort.
    */
   lancer(outil, contexte, depuis) {
-    const { libelle } = OUTILS[outil];
-    this.cercleEl.setAttribute("aria-label", `${libelle} : l'agent r\xE9fl\xE9chit`);
-    this.preparer(outil);
+    this.attendre(
+      OUTILS[outil],
+      depuis,
+      agir(outil, contexte),
+      (texte) => ({ type: "outil", outil, texte })
+    );
+  }
+  /**
+   * Le bilan d'une discussion orale : `depuis` est la boîte CLIENT de la
+   * pilule, juste avant son retrait. Le rond du micro en sort.
+   */
+  lancerBilan(contexte, messages, depuis) {
+    this.attendre(
+      BILAN,
+      depuis,
+      resumerOral(messages, contexte),
+      (texte) => ({ type: "oral", messages, texte }),
+      "Bilan indisponible."
+    );
+  }
+  /** Le rond tourne pendant `reponse`, puis s'ouvre en carte. */
+  attendre(aspect, depuis, reponse, resultat, texteSiErreur) {
+    this.cercleEl.setAttribute("aria-label", `${aspect.libelle} : l'agent r\xE9fl\xE9chit`);
+    this.preparer(aspect);
+    if (texteSiErreur !== void 0) this.montre = resultat(texteSiErreur);
     this.lancement++;
     const lancement = this.lancement;
     const estCourant = () => this._loaded && this.lancement === lancement;
@@ -2027,12 +2060,13 @@ var ActionAgent = class extends import_fragment2.Component {
       if (!estCourant()) return;
       this.animations.push(resorber(depuis, this.cercleEl));
     });
-    agir(outil, contexte).then((reponse) => {
+    reponse.then((texte) => {
       if (!estCourant()) return;
-      this.montre = { outil, texte: reponse };
-      this.ouvrirCarte(reponse, false);
+      this.montre = resultat(texte);
+      this.ouvrirCarte(texte, false);
     }).catch((err) => {
       if (estCourant()) {
+        if (texteSiErreur !== void 0) this.montre = resultat(texteSiErreur);
         this.ouvrirCarte(`L'agent n'a pas pu r\xE9pondre : ${err instanceof Error ? err.message : String(err)}`, true);
       }
     });
@@ -2042,11 +2076,11 @@ var ActionAgent = class extends import_fragment2.Component {
    * pas de rond, la carte sort directement de l'icône.
    */
   montrer(outil, texte, depuis, cadre) {
-    this.preparer(outil);
+    this.preparer(OUTILS[outil]);
     this.widget.reprendre(cadre);
     this.pied.montrer(true);
     this.pied.montrerDiscuter(true);
-    this.montre = { outil, texte };
+    this.montre = { type: "outil", outil, texte };
     this.corpsEl.textContent = texte;
     this.lancement++;
     const lancement = this.lancement;
@@ -2062,9 +2096,8 @@ var ActionAgent = class extends import_fragment2.Component {
   fermer() {
     this.unload();
   }
-  /** L'icône et le nom de l'outil sur le rond et la carte, le corps vidé. */
-  preparer(outil) {
-    const { icone, libelle } = OUTILS[outil];
+  /** L'icône et le nom (de l'outil, ou du bilan) sur le rond et la carte, le corps vidé. */
+  preparer({ icone, libelle }) {
     (0, import_fragment2.setIcon)(this.app, this.iconeCercleEl, icone);
     (0, import_fragment2.setIcon)(this.app, this.iconeCarteEl, icone);
     this.titreEl.textContent = libelle;
@@ -2296,7 +2329,15 @@ var VoixAgent = class extends import_fragment3.Component {
   lecture = null;
   parentEl;
   reference;
+  /**
+   * Prévenu à la fermeture, avec les tours de la discussion et la boîte
+   * CLIENT de la pilule juste avant son retrait : le bilan en sort.
+   * `parCroix` : faux quand le calque la ferme (une autre trace rouverte,
+   * un autre document, la vue démontée).
+   */
   onFermer;
+  /** Fermée par sa croix : seul ce geste demande un bilan. */
+  parCroix = false;
   evitement;
   constructor(app, parentEl, reference, onFermer, evitement) {
     super();
@@ -2319,7 +2360,10 @@ var VoixAgent = class extends import_fragment3.Component {
     fermerEl.setAttribute("aria-label", "Fermer");
     fermerEl.title = "Fermer";
     (0, import_fragment3.setIcon)(app, fermerEl, "x");
-    fermerEl.addEventListener("click", () => this.fermer());
+    fermerEl.addEventListener("click", () => {
+      this.parCroix = true;
+      this.fermer();
+    });
     this.contenuEl.appendChild(this.onde.el);
     this.messageEl = this.contenuEl.appendChild(document.createElement("span"));
     this.messageEl.classList.add("agent-voix-message");
@@ -2342,15 +2386,16 @@ var VoixAgent = class extends import_fragment3.Component {
     return this._loaded;
   }
   /**
-   * Ouvre la discussion sur `zone`. `depuis` est la boîte CLIENT de la
-   * barre, juste avant qu'elle ne soit retirée : le rond en sort.
+   * Ouvre la discussion sur `zone`. `depuis` est la boîte CLIENT de ce qui
+   * fond dans le rond (la barre, ou le chat d'une discussion reprise), juste
+   * avant son retrait. `historique` : les tours d'une discussion qu'on reprend.
    */
-  lancer(zone, depuis) {
+  lancer(zone, depuis, historique = []) {
     this.lancement++;
     const lancement = this.lancement;
     const estCourant = () => this._loaded && this.lancement === lancement;
     this.zone = { ...zone };
-    this.historique = [];
+    this.historique = [...historique];
     this.poserEtat("rond");
     this.el.style.opacity = "0";
     this.parentEl.appendChild(this.el);
@@ -2372,6 +2417,11 @@ var VoixAgent = class extends import_fragment3.Component {
     this.register(autoUpdate(this.reference, this.el, () => void this.placer()));
   }
   onunload() {
+    const historique = this.historique;
+    const boite2 = this.el.getBoundingClientRect();
+    const parCroix = this.parCroix;
+    this.parCroix = false;
+    this.historique = [];
     this.lancement++;
     for (const a of this.animations) a.annuler();
     this.animations = [];
@@ -2391,7 +2441,7 @@ var VoixAgent = class extends import_fragment3.Component {
     this.el.style.transition = "";
     this.el.classList.remove("est-posee");
     this.poserEtat("rond");
-    this.onFermer();
+    this.onFermer(historique, boite2, parCroix);
   }
   /** Public, pour les mouvements que autoUpdate ne voit pas (voir agentLayer). */
   placer() {
@@ -2826,6 +2876,8 @@ var BulleAgent = class extends import_fragment5.Component {
   filEl;
   champEl;
   envoyerEl;
+  /** Le micro de la saisie : seulement sur une discussion orale, qu'il reprend. */
+  microEl;
   pied;
   /** Déplacer et agrandir la bulle (widget.ts). */
   widget;
@@ -2856,13 +2908,18 @@ var BulleAgent = class extends import_fragment5.Component {
   /** L'outil dont la conversation continue la réponse, null pour un chat né de la barre. */
   origine = null;
   /**
+   * Le bilan d'une discussion orale relue par écrit, null sinon. Posé en
+   * tête du fil, et rendu au calque à la fermeture : la trace reste orale.
+   */
+  bilan = null;
+  /**
    * Prévenu à chaque fermeture, avec la conversation et son passage tels
    * qu'ils étaient : le calque en garde une trace dans la marge (traces.ts).
    */
   onFermer;
   /** Ce que la bulle ne doit jamais recouvrir, et le cadre où elle reste (voir eviter.ts). */
   evitement;
-  constructor(app, parentEl, reference, alignEl, onFermer, evitement, onSupprimer, trait) {
+  constructor(app, parentEl, reference, alignEl, onFermer, evitement, onSupprimer, trait, onMicro) {
     super();
     this.parentEl = parentEl;
     this.reference = reference;
@@ -2905,6 +2962,14 @@ var BulleAgent = class extends import_fragment5.Component {
         void this.envoyer();
       }
     });
+    this.microEl = saisie.appendChild(document.createElement("button"));
+    this.microEl.type = "button";
+    this.microEl.classList.add("agent-bulle-micro");
+    this.microEl.setAttribute("aria-label", "Reprendre la discussion \xE0 voix haute");
+    this.microEl.title = "Reprendre la discussion \xE0 voix haute";
+    this.microEl.hidden = true;
+    (0, import_fragment5.setIcon)(app, this.microEl, "mic");
+    this.microEl.addEventListener("click", () => onMicro());
     this.envoyerEl = saisie.appendChild(document.createElement("button"));
     this.envoyerEl.type = "submit";
     this.envoyerEl.classList.add("agent-bulle-envoyer");
@@ -2925,7 +2990,7 @@ var BulleAgent = class extends import_fragment5.Component {
    * l'historique de la marge garde et rouvre.
    */
   conversation() {
-    return [...this.filEl.children].filter((el) => !el.classList.contains("is-pending")).map((el) => ({
+    return [...this.filEl.children].filter((el) => el.classList.contains("agent-message") && !el.classList.contains("is-pending")).map((el) => ({
       auteur: el.classList.contains("mod-moi") ? "moi" : "agent",
       texte: el.textContent ?? ""
     }));
@@ -2939,16 +3004,32 @@ var BulleAgent = class extends import_fragment5.Component {
    * Sert aussi à la carte d'un outil qui devient un chat : `depuis` est alors
    * la boîte de sa tête de chat, déjà retirée, et `outil` son outil. La
    * poubelle n'y est que si la carte venait de la marge.
+   *
+   * `bilan` : une discussion orale relue par écrit. Le bilan ouvre le fil,
+   * les tours transcrits suivent, et un micro à côté d'Envoyer la reprend à
+   * voix haute (le calque, `onMicro`).
    */
   rouvrir(contexte, messages, reference, depuis, cadre, options) {
     this.fermer();
     this.seule = { reference, depuis };
     this.origine = options.outil ?? null;
+    this.bilan = options.bilan ?? null;
     this.widget.reprendre(cadre);
     this.ouvrir(contexte);
     this.filEl.replaceChildren();
+    if (this.bilan !== null) this.ajouterBilan(this.bilan);
+    this.microEl.hidden = this.bilan === null;
     for (const m of messages) this.ajouterMessage(m.auteur, m.texte);
+    if (this.bilan !== null) this.filEl.scrollTop = 0;
     this.pied.montrer(options.poubelle);
+  }
+  /** Le bilan d'une discussion orale relue par écrit, null pour un chat ordinaire. */
+  bilanOral() {
+    return this.bilan;
+  }
+  /** La boîte CLIENT de la bulle, à lire avant de la fermer : le rond du micro en sort. */
+  boite() {
+    return this.dom.getBoundingClientRect();
   }
   /** Ouverte seule, depuis la marge : sa croix ferme tout, il n'y a pas de barre. */
   estSeule() {
@@ -3005,7 +3086,10 @@ var BulleAgent = class extends import_fragment5.Component {
     const contexte = this.contexte;
     const cadre = this.widget.cadre;
     const origine = this.origine;
+    const bilan = this.bilan;
     this.origine = null;
+    this.bilan = null;
+    this.microEl.hidden = true;
     this.widget.oublier();
     this.eclosion?.annuler();
     this.eclosion = null;
@@ -3019,7 +3103,7 @@ var BulleAgent = class extends import_fragment5.Component {
     this.enAttente = false;
     this.seule = null;
     this.envoyerEl.disabled = false;
-    this.onFermer(messages, contexte, cadre, origine);
+    this.onFermer(messages, contexte, cadre, origine, bilan);
   }
   /**
    * Recalcule la position. Public : le calque l'appelle quand la zone bouge
@@ -3086,6 +3170,15 @@ var BulleAgent = class extends import_fragment5.Component {
     }
     if (!estCourante()) return;
     this.filEl.scrollTop = this.filEl.scrollHeight;
+  }
+  /** Le bilan d'une discussion orale, en tête du fil : pas un message, conversation() l'ignore. */
+  ajouterBilan(texte) {
+    const el = this.filEl.appendChild(document.createElement("div"));
+    el.classList.add("agent-bilan");
+    const titre = el.appendChild(document.createElement("div"));
+    titre.classList.add("agent-bilan-titre");
+    titre.textContent = "Bilan";
+    el.appendChild(document.createElement("div")).textContent = texte;
   }
   ajouterMessage(auteur, texte) {
     const el = this.filEl.appendChild(document.createElement("div"));
@@ -3244,12 +3337,12 @@ var CarnetTraces = class {
     const el = document.createElement("button");
     el.type = "button";
     el.classList.add("agent-trace");
-    const outil = t.contenu.outil;
-    const libelle = outil ? OUTILS[outil].libelle : "Conversation";
+    const outil = t.contenu.type === "oral" ? void 0 : t.contenu.outil;
+    const { libelle, icone } = t.contenu.type === "oral" ? { libelle: "Discussion orale", icone: "mic" } : outil ? OUTILS[outil] : { libelle: "Conversation", icone: "cat" };
     const extrait = t.zone.texte.replace(/\s+/g, " ").trim();
     el.setAttribute("aria-label", `${libelle} : ${extrait}`);
     el.title = `${libelle} : \xAB ${extrait.length > 60 ? `${extrait.slice(0, 60)}\u2026` : extrait} \xBB`;
-    (0, import_fragment6.setIcon)(this.app, el, outil ? OUTILS[outil].icone : "cat");
+    (0, import_fragment6.setIcon)(this.app, el, icone);
     el.style.position = "absolute";
     el.style.pointerEvents = "auto";
     el.addEventListener("click", () => {
@@ -3480,8 +3573,11 @@ function createAgentLayer(ctx) {
     obstacles: () => [...barresAnnotation(), ...passage()],
     limites
   });
-  const bulle = new BulleAgent(ctx.app, paneEl, barre.dom, barre.chatEl, (messages, contexte, cadre, origine2) => {
-    if (!suppression && contexte && trait && messages.length > 0) {
+  const bulle = new BulleAgent(ctx.app, paneEl, barre.dom, barre.chatEl, (messages, contexte, cadre, origine2, bilan) => {
+    if (enchainement) return;
+    if (!suppression && contexte && trait && bilan !== null) {
+      carnet.fermer(contexte, trait, { type: "oral", messages, bilan }, cadre);
+    } else if (!suppression && contexte && trait && messages.length > 0) {
       carnet.fermer(contexte, trait, { type: "chat", messages, ...origine2 ? { outil: origine2 } : {} }, cadre);
     } else carnet.oublierOuverte();
     if (!barre.estOuverte()) {
@@ -3492,12 +3588,13 @@ function createAgentLayer(ctx) {
   }, {
     obstacles: () => [...barresAnnotation(), ...barre.estOuverte() ? [boite2(barre.dom)] : [], ...passage()],
     limites
-  }, () => supprimer(), reference);
+  }, () => supprimer(), reference, () => reprendreAVoix());
   const action = new ActionAgent(ctx.app, paneEl, reference, () => {
     if (enchainement) return;
     const resultat = action.resultat();
-    if (!suppression && resultat && zone && trait) carnet.fermer(zone, trait, { type: "outil", ...resultat }, action.cadre());
-    else carnet.oublierOuverte();
+    if (!suppression && resultat && zone && trait) {
+      carnet.fermer(zone, trait, resultat.type === "outil" ? resultat : { type: "oral", messages: resultat.messages, bilan: resultat.texte }, action.cadre());
+    } else carnet.oublierOuverte();
     zone = null;
     majOccupe();
     editor.requestUpdate();
@@ -3505,7 +3602,19 @@ function createAgentLayer(ctx) {
     obstacles: () => [...barresAnnotation(), ...passage()],
     limites
   }, () => supprimer(), () => discuter());
-  const voix = new VoixAgent(ctx.app, paneEl, reference, () => {
+  const voix = new VoixAgent(ctx.app, paneEl, reference, (historique, boite3, parCroix) => {
+    const reprise = voixReprise;
+    voixReprise = null;
+    const inchangee = reprise !== null && historique.length === reprise.tours;
+    if (parCroix && zone && historique.length > 0 && !inchangee) {
+      action.lancerBilan(zone, historique, boite3);
+      majOccupe();
+      return;
+    }
+    if (!suppression && zone && trait && historique.length > 0) {
+      const bilan = inchangee ? reprise.bilan : "Bilan non \xE9crit : la discussion a \xE9t\xE9 interrompue.";
+      carnet.fermer(zone, trait, { type: "oral", messages: historique, bilan }, null);
+    } else carnet.oublierOuverte();
     zone = null;
     majOccupe();
     editor.requestUpdate();
@@ -3526,14 +3635,35 @@ function createAgentLayer(ctx) {
     } finally {
       enchainement = false;
     }
-    bulle.rouvrir(
-      zone,
-      [{ auteur: "agent", texte: resultat.texte }],
-      reference,
-      depuis,
-      cadre,
-      { outil: resultat.outil, poubelle }
-    );
+    if (resultat.type === "oral") {
+      bulle.rouvrir(zone, resultat.messages, reference, depuis, cadre, { bilan: resultat.texte, poubelle });
+    } else {
+      bulle.rouvrir(
+        zone,
+        [{ auteur: "agent", texte: resultat.texte }],
+        reference,
+        depuis,
+        cadre,
+        { outil: resultat.outil, poubelle }
+      );
+    }
+    majOccupe();
+    editor.requestUpdate();
+  };
+  let voixReprise = null;
+  const reprendreAVoix = () => {
+    if (!zone) return;
+    const messages = bulle.conversation();
+    const depuis = bulle.boite();
+    const bilan = bulle.bilanOral();
+    voixReprise = bilan === null ? null : { tours: messages.length, bilan };
+    enchainement = true;
+    try {
+      bulle.fermer();
+    } finally {
+      enchainement = false;
+    }
+    voix.lancer(zone, depuis, messages);
     majOccupe();
     editor.requestUpdate();
   };
@@ -3546,6 +3676,15 @@ function createAgentLayer(ctx) {
     trait = carnet.traitDe(t);
     if (t.contenu.type === "outil") {
       action.montrer(t.contenu.outil, t.contenu.texte, depuis, t.cadre);
+    } else if (t.contenu.type === "oral") {
+      bulle.rouvrir(
+        zone,
+        t.contenu.messages,
+        reference,
+        depuis,
+        t.cadre,
+        { bilan: t.contenu.bilan, poubelle: true }
+      );
     } else {
       bulle.rouvrir(
         zone,
