@@ -559,15 +559,17 @@
    milieu du bout de la gomme (5 18). Le repli reste celui du cœur.
 
    Le cœur ne dit pas quel outil est armé, sauf pour la gomme (`mod-gomme`) :
-   on le lit sur le bouton actif de la barre d'annotation du même pane. */
-.view-content:has(.toolbar-item.is-active[aria-label="Crayon"]) .annotation-surface.is-armed {
+   on le lit sur le bouton actif de la barre d'annotation du même pane. Chat
+   ou carte ouverts (`agent-occupe`), la surface est inerte : pas de curseur
+   d'outil, la règle `.agent-occupe` plus haut remet `default`. */
+.view-content:not(.agent-occupe):has(.toolbar-item.is-active[aria-label="Crayon"]) .annotation-surface.is-armed {
     cursor: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none' stroke-linecap='round' stroke-linejoin='round'%3E%3Cg stroke='white' stroke-width='4'%3E%3Cpath d='M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z'/%3E%3Cpath d='m15 5 4 4'/%3E%3C/g%3E%3Cg stroke='black' stroke-width='2'%3E%3Cpath d='M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z'/%3E%3Cpath d='m15 5 4 4'/%3E%3C/g%3E%3C/svg%3E") 2 22, crosshair;
 }
 
-.view-content:has(.toolbar-item.is-active[aria-label="Surligneur"]) .annotation-surface.is-armed {
+.view-content:not(.agent-occupe):has(.toolbar-item.is-active[aria-label="Surligneur"]) .annotation-surface.is-armed {
     cursor: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none' stroke-linecap='round' stroke-linejoin='round'%3E%3Cg stroke='white' stroke-width='4'%3E%3Cpath d='m9 11-6 6v3h9l3-3'/%3E%3Cpath d='m22 12-4.6 4.6a2 2 0 0 1-2.8 0l-5.2-5.2a2 2 0 0 1 0-2.8L14 4'/%3E%3C/g%3E%3Cg stroke='black' stroke-width='2'%3E%3Cpath d='m9 11-6 6v3h9l3-3'/%3E%3Cpath d='m22 12-4.6 4.6a2 2 0 0 1-2.8 0l-5.2-5.2a2 2 0 0 1 0-2.8L14 4'/%3E%3C/g%3E%3C/svg%3E") 3 20, crosshair;
 }
 
-.view-content .annotation-surface.mod-gomme {
+.view-content:not(.agent-occupe) .annotation-surface.mod-gomme {
     cursor: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none' stroke-linecap='round' stroke-linejoin='round'%3E%3Cg stroke='white' stroke-width='4'%3E%3Cpath d='M21 21H8a2 2 0 0 1-1.42-.587l-3.994-3.999a2 2 0 0 1 0-2.828l10-10a2 2 0 0 1 2.829 0l5.999 6a2 2 0 0 1 0 2.828L12.834 21'/%3E%3Cpath d='m5.082 11.09 8.828 8.828'/%3E%3C/g%3E%3Cg stroke='black' stroke-width='2'%3E%3Cpath d='M21 21H8a2 2 0 0 1-1.42-.587l-3.994-3.999a2 2 0 0 1 0-2.828l10-10a2 2 0 0 1 2.829 0l5.999 6a2 2 0 0 1 0 2.828L12.834 21'/%3E%3Cpath d='m5.082 11.09 8.828 8.828'/%3E%3C/g%3E%3C/svg%3E") 5 18, cell;
 }
