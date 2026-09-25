@@ -1,8 +1,12 @@
 import { setIcon, type App } from 'fragment';
 
 // ═══════════════════════════════════════════════════════════════════════════
-//  Le pied d'une réponse rouverte depuis la marge (traces.ts) : une poubelle.
-//  Un clic la remplace par une confirmation, « Annuler » et « Supprimer » en
+//  Le pied d'une carte d'outil ou d'un chat. Deux boutons :
+//
+//  - la tête de chat, à droite, sur toute carte dont la réponse est arrivée :
+//    la carte devient un chat sur cette réponse (agentLayer) ;
+//  - la poubelle, à gauche, seulement sur une réponse rouverte depuis la marge
+//    (traces.ts). Un clic la remplace par une confirmation, « Annuler » et « Supprimer » en
 //  rouge. « Supprimer » retire l'annotation : l'icône de la marge, la réponse
 //  gardée et le trait d'encre. C'est le calque (agentLayer) qui le fait.
 //
@@ -10,8 +14,9 @@ import { setIcon, type App } from 'fragment';
 //    une boîte modale bloque la fenêtre, et la carte est non modale ; la
 //    question se pose là où l'on a cliqué.
 //
-//  Le pied est masqué tant qu'on ne l'a pas montré : une réponse qui vient
-//  d'arriver n'est pas encore une annotation de la marge.
+//  La poubelle est masquée tant qu'on ne l'a pas montrée : une réponse qui
+//  vient d'arriver n'est pas encore une annotation de la marge. Le pied
+//  entier l'est quand aucun des deux boutons n'est montré.
 // ═══════════════════════════════════════════════════════════════════════════
 
 export class PiedSupprimer {
@@ -20,15 +25,19 @@ export class PiedSupprimer {
     private readonly poubelleEl: HTMLButtonElement;
     private readonly confirmationEl: HTMLElement;
     private readonly annulerEl: HTMLButtonElement;
+    /** La tête de chat : absente du pied d'un chat, qui est déjà une conversation. */
+    readonly discuterEl: HTMLButtonElement | null = null;
+    private poubelle = false;
+    private discuter = false;
 
-    constructor(app: App, onSupprimer: () => void) {
+    constructor(app: App, onSupprimer: () => void, onDiscuter?: () => void) {
         this.el = document.createElement('div');
         this.el.classList.add('agent-pied');
         this.el.hidden = true;
 
         this.poubelleEl = this.el.appendChild(document.createElement('button'));
         this.poubelleEl.type = 'button';
-        this.poubelleEl.classList.add('agent-pied-poubelle');
+        this.poubelleEl.classList.add('agent-pied-bouton', 'agent-pied-poubelle');
         this.poubelleEl.setAttribute('aria-label', "Supprimer l'annotation");
         this.poubelleEl.title = "Supprimer l'annotation";
         setIcon(app, this.poubelleEl, 'trash-2');
@@ -56,6 +65,17 @@ export class PiedSupprimer {
         supprimerEl.textContent = 'Supprimer';
         supprimerEl.addEventListener('click', () => onSupprimer());
 
+        if (onDiscuter) {
+            const el = this.el.appendChild(document.createElement('button'));
+            el.type = 'button';
+            el.classList.add('agent-pied-bouton', 'agent-pied-discuter');
+            el.setAttribute('aria-label', 'Discuter de cette réponse');
+            el.title = 'Discuter de cette réponse';
+            setIcon(app, el, 'cat');
+            el.addEventListener('click', () => onDiscuter());
+            this.discuterEl = el;
+        }
+
         // Échap renonce, comme « Annuler ». La carte arrête déjà les touches.
         this.confirmationEl.addEventListener('keydown', (e) => {
             if (e.key !== 'Escape') return;
@@ -66,14 +86,23 @@ export class PiedSupprimer {
         this.confirmer(false);
     }
 
-    /** Montre la poubelle (réponse rouverte depuis la marge) ou masque le pied. */
+    /** Montre ou masque la poubelle (réponse rouverte depuis la marge). */
     montrer(visible: boolean): void {
-        this.el.hidden = !visible;
+        this.poubelle = visible;
+        this.confirmer(false);
+    }
+
+    /** Montre ou masque la tête de chat (réponse arrivée, pas en erreur). */
+    montrerDiscuter(visible: boolean): void {
+        this.discuter = visible;
         this.confirmer(false);
     }
 
     private confirmer(oui: boolean): void {
-        this.poubelleEl.hidden = oui;
+        this.el.hidden = !this.poubelle && !(this.discuter && this.discuterEl);
+        this.poubelleEl.hidden = oui || !this.poubelle;
+        // La confirmation prend toute la largeur : la tête de chat s'efface.
+        if (this.discuterEl) this.discuterEl.hidden = oui || !this.discuter;
         this.confirmationEl.hidden = !oui;
         // « Annuler » prend le focus : Entrée par réflexe ne supprime rien.
         if (oui) this.annulerEl.focus();

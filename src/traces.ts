@@ -26,7 +26,12 @@ import type { Cadre } from './widget';
 /** Une réponse d'outil, ou une conversation. */
 export type Contenu =
     | { type: 'outil'; outil: Outil; texte: string }
-    | { type: 'chat'; messages: Message[] };
+    /**
+     * `outil` : la conversation continue la réponse de cet outil (la tête de
+     * chat de sa carte). Son premier message est cette réponse, et la marge
+     * garde l'icône de l'outil.
+     */
+    | { type: 'chat'; messages: Message[]; outil?: Outil };
 
 export interface Message {
     auteur: 'moi' | 'agent';
@@ -130,6 +135,11 @@ export class CarnetTraces {
         return trace;
     }
 
+    /** Une réponse est ouverte depuis la marge : c'est déjà une annotation. */
+    aUneOuverte(): boolean {
+        return this.ouverte !== null;
+    }
+
     /** Le trait de la trace, recalé sur son passage (le texte a pu bouger). */
     traitDe(trace: Trace): Stroke {
         return { ...trace.trait, pos: trace.zone.from + trace.decalageTrait };
@@ -213,11 +223,14 @@ export class CarnetTraces {
         const el = document.createElement('button');
         el.type = 'button';
         el.classList.add('agent-trace');
-        const libelle = t.contenu.type === 'outil' ? OUTILS[t.contenu.outil].libelle : 'Conversation';
+        // Une trace outil devenue conversation garde son icône : l'élément est
+        // en cache, et c'est le même outil.
+        const outil = t.contenu.outil;
+        const libelle = outil ? OUTILS[outil].libelle : 'Conversation';
         const extrait = t.zone.texte.replace(/\s+/g, ' ').trim();
         el.setAttribute('aria-label', `${libelle} : ${extrait}`);
         el.title = `${libelle} : « ${extrait.length > 60 ? `${extrait.slice(0, 60)}…` : extrait} »`;
-        setIcon(this.app, el, t.contenu.type === 'outil' ? OUTILS[t.contenu.outil].icone : 'cat');
+        setIcon(this.app, el, outil ? OUTILS[outil].icone : 'cat');
         el.style.position = 'absolute';
         el.style.pointerEvents = 'auto'; // le plan document est pointer-events:none
         el.addEventListener('click', () => {

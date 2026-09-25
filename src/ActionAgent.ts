@@ -70,6 +70,7 @@ export class ActionAgent extends Component {
         onFermer: () => void,
         evitement: { obstacles: () => Boite[]; limites: () => Boite },
         onSupprimer: () => void,
+        onDiscuter: () => void,
     ) {
         super();
         this.app = app;
@@ -112,8 +113,9 @@ export class ActionAgent extends Component {
         this.corpsEl.classList.add('agent-action-corps');
         this.corpsEl.setAttribute('aria-live', 'polite');
 
-        // La poubelle, seulement sur une réponse rouverte depuis la marge.
-        this.pied = new PiedSupprimer(app, onSupprimer);
+        // La tête de chat sur toute réponse arrivée, la poubelle seulement sur
+        // une réponse rouverte depuis la marge.
+        this.pied = new PiedSupprimer(app, onSupprimer, onDiscuter);
         this.carteEl.appendChild(this.pied.el);
 
         this.widget = new Widget(this.carteEl, tete, () => reference.getBoundingClientRect());
@@ -128,6 +130,14 @@ export class ActionAgent extends Component {
     /** La réponse que la carte montre, ou null (l'agent réfléchit encore, ou a échoué). */
     resultat(): { outil: Outil; texte: string } | null {
         return this.montre;
+    }
+
+    /**
+     * La boîte client de la tête de chat du pied, à lire AVANT de fermer la
+     * carte : le chat qui la remplace sort de là (eclosion.ts).
+     */
+    boutonDiscuter(): DOMRect {
+        return this.pied.discuterEl?.getBoundingClientRect() ?? this.carteEl.getBoundingClientRect();
     }
 
     /** Où la carte a été posée et à quelle taille, null si on n'y a pas touché. */
@@ -177,6 +187,7 @@ export class ActionAgent extends Component {
         this.preparer(outil);
         this.widget.reprendre(cadre);
         this.pied.montrer(true);
+        this.pied.montrerDiscuter(true);
         this.montre = { outil, texte };
         this.corpsEl.textContent = texte;
         this.lancement++;
@@ -205,6 +216,7 @@ export class ActionAgent extends Component {
         this.corpsEl.textContent = '';
         this.corpsEl.classList.remove('is-error');
         this.pied.montrer(false);
+        this.pied.montrerDiscuter(false);
         this.widget.oublier();
         this.montre = null;
     }
@@ -260,6 +272,8 @@ export class ActionAgent extends Component {
     private ouvrirCarte(texte: string, erreur: boolean): void {
         this.corpsEl.textContent = texte;
         this.corpsEl.classList.toggle('is-error', erreur);
+        // Une erreur n'est pas une réponse dont on discute.
+        this.pied.montrerDiscuter(!erreur);
         this.decalageCarte = this.cercleEl.getBoundingClientRect().top - this.reference.getBoundingClientRect().top;
         this.carteEl.style.opacity = '0';
         this.parentEl.appendChild(this.carteEl);

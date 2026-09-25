@@ -5,7 +5,7 @@ import {
 import { Component, setIcon, type App } from 'fragment';
 import { eclore, type Eclosion } from './eclosion';
 import { eviter, type Boite } from './eviter';
-import { repondre, type ContexteQuestion } from './repondre';
+import { repondre, type ContexteQuestion, type Outil } from './repondre';
 import { PiedSupprimer } from './supprimer';
 import { Widget, type Cadre } from './widget';
 import type { Message } from './traces';
@@ -72,12 +72,14 @@ export class BulleAgent extends Component {
      * tient seule contre le trait, sans la barre, et sort de l'icône. null
      * pour une bulle ouverte par la tête de chat de la barre.
      */
-    private seule: { reference: ReferenceElement; depuis: HTMLElement } | null = null;
+    private seule: { reference: ReferenceElement; depuis: HTMLElement | DOMRect } | null = null;
+    /** L'outil dont la conversation continue la réponse, null pour un chat né de la barre. */
+    private origine: Outil | null = null;
     /**
      * Prévenu à chaque fermeture, avec la conversation et son passage tels
      * qu'ils étaient : le calque en garde une trace dans la marge (traces.ts).
      */
-    private readonly onFermer: (messages: Message[], contexte: ContexteQuestion | null, cadre: Cadre | null) => void;
+    private readonly onFermer: (messages: Message[], contexte: ContexteQuestion | null, cadre: Cadre | null, origine: Outil | null) => void;
 
     /** Ce que la bulle ne doit jamais recouvrir, et le cadre où elle reste (voir eviter.ts). */
     private readonly evitement: { obstacles: () => Boite[]; limites: () => Boite };
@@ -87,7 +89,7 @@ export class BulleAgent extends Component {
         parentEl: HTMLElement,
         reference: ReferenceElement,
         alignEl: HTMLElement,
-        onFermer: (messages: Message[], contexte: ContexteQuestion | null, cadre: Cadre | null) => void,
+        onFermer: (messages: Message[], contexte: ContexteQuestion | null, cadre: Cadre | null, origine: Outil | null) => void,
         evitement: { obstacles: () => Boite[]; limites: () => Boite },
         onSupprimer: () => void,
         trait: ReferenceElement,
@@ -194,19 +196,24 @@ export class BulleAgent extends Component {
      * pose à droite du trait (`reference`), comme la carte d'un outil, et sort
      * de l'icône cliquée (`depuis`). On relit une discussion, on n'en lance pas
      * une autre : les outils de la barre n'ont rien à y faire.
+     *
+     * Sert aussi à la carte d'un outil qui devient un chat : `depuis` est alors
+     * la boîte de sa tête de chat, déjà retirée, et `outil` son outil. La
+     * poubelle n'y est que si la carte venait de la marge.
      */
     rouvrir(
-        contexte: ContexteQuestion, messages: Message[], reference: ReferenceElement, depuis: HTMLElement,
-        cadre: Cadre | null,
+        contexte: ContexteQuestion, messages: Message[], reference: ReferenceElement, depuis: HTMLElement | DOMRect,
+        cadre: Cadre | null, options: { outil?: Outil; poubelle: boolean },
     ): void {
         this.fermer();
         this.seule = { reference, depuis };
+        this.origine = options.outil ?? null;
         // Là où on l'avait laissée, à la taille qu'on lui avait donnée.
         this.widget.reprendre(cadre);
         this.ouvrir(contexte);
         this.filEl.replaceChildren();
         for (const m of messages) this.ajouterMessage(m.auteur, m.texte);
-        this.pied.montrer(true);
+        this.pied.montrer(options.poubelle);
     }
 
     /** Ouverte seule, depuis la marge : sa croix ferme tout, il n'y a pas de barre. */
@@ -279,6 +286,8 @@ export class BulleAgent extends Component {
         const messages = this.conversation();
         const contexte = this.contexte;
         const cadre = this.widget.cadre;
+        const origine = this.origine;
+        this.origine = null;
         this.widget.oublier();
         this.eclosion?.annuler();
         this.eclosion = null;
@@ -294,7 +303,7 @@ export class BulleAgent extends Component {
         this.enAttente = false;
         this.seule = null;
         this.envoyerEl.disabled = false;
-        this.onFermer(messages, contexte, cadre);
+        this.onFermer(messages, contexte, cadre, origine);
     }
 
     /**
@@ -342,6 +351,8 @@ export class BulleAgent extends Component {
         const contexte = this.contexte;
         if (!question || !contexte || this.enAttente) return;
 
+        // Lue avant la question : c'est ce qui la précède.
+        const historique = this.conversation();
         this.ajouterMessage('moi', question);
         this.champEl.value = '';
         this.ajusterChamp();
@@ -354,7 +365,7 @@ export class BulleAgent extends Component {
         reponseEl.classList.add('is-pending');
 
         try {
-            const reponse = await repondre(question, contexte);
+            const reponse = await repondre(question, contexte, historique);
             // Fermée pendant l'attente (et peut-être rouverte ailleurs) : cette
             // réponse n'appartient plus à la conversation affichée.
             if (!estCourante()) return;

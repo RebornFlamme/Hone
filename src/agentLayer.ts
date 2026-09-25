@@ -155,8 +155,10 @@ export function createAgentLayer(ctx: LayerContext): () => void {
     });
 
     // Une conversation fermée laisse sa trace dans la marge.
-    const bulle = new BulleAgent(ctx.app, paneEl, barre.dom, barre.chatEl, (messages, contexte, cadre) => {
-        if (!suppression && contexte && trait && messages.length > 0) carnet.fermer(contexte, trait, { type: 'chat', messages }, cadre);
+    const bulle = new BulleAgent(ctx.app, paneEl, barre.dom, barre.chatEl, (messages, contexte, cadre, origine) => {
+        if (!suppression && contexte && trait && messages.length > 0) {
+            carnet.fermer(contexte, trait, { type: 'chat', messages, ...(origine ? { outil: origine } : {}) }, cadre);
+        }
         else carnet.oublierOuverte();
         // Rouverte seule depuis la marge, sans barre : sa croix ferme tout.
         if (!barre.estOuverte()) {
@@ -172,6 +174,8 @@ export function createAgentLayer(ctx: LayerContext): () => void {
     // La croix de la carte ferme tout, comme celle de la barre. Une réponse
     // reçue laisse sa trace dans la marge.
     const action = new ActionAgent(ctx.app, paneEl, reference, () => {
+        // La carte devient un chat (discuter) : ni trace, ni passage perdu.
+        if (enchainement) return;
         const resultat = action.resultat();
         if (!suppression && resultat && zone && trait) carnet.fermer(zone, trait, { type: 'outil', ...resultat }, action.cadre());
         else carnet.oublierOuverte();
@@ -181,7 +185,34 @@ export function createAgentLayer(ctx: LayerContext): () => void {
     }, {
         obstacles: () => [...barresAnnotation(), ...passage()],
         limites,
-    }, () => supprimer());
+    }, () => supprimer(), () => discuter());
+
+    // ── La carte devient un chat ───────────────────────────────────────────
+    //
+    // La tête de chat du pied d'une carte : la carte se ferme, et le chat sort
+    // du bouton, seul (sans la barre), à la place et à la taille de la carte.
+    // Son fil commence par la réponse de l'outil. À la fermeture, la marge
+    // garde UNE icône, celle de l'outil, qui rouvre toute la conversation.
+    // Une carte venue de la marge reste l'ouverte du carnet : sa trace devient
+    // la conversation, sans doublon.
+    let enchainement = false;
+    const discuter = (): void => {
+        const resultat = action.resultat();
+        if (!resultat || !zone || !trait) return;
+        const depuis = action.boutonDiscuter();
+        const cadre = action.cadre();
+        const poubelle = carnet.aUneOuverte();
+        enchainement = true;
+        try {
+            action.fermer();
+        } finally {
+            enchainement = false;
+        }
+        bulle.rouvrir(zone, [{ auteur: 'agent', texte: resultat.texte }], reference, depuis, cadre,
+            { outil: resultat.outil, poubelle });
+        majOccupe();
+        editor.requestUpdate();
+    };
 
     // ── L'historique, dans la marge (traces.ts) ────────────────────────────
     //
@@ -201,7 +232,8 @@ export function createAgentLayer(ctx: LayerContext): () => void {
             action.montrer(t.contenu.outil, t.contenu.texte, depuis, t.cadre);
         } else {
             // Seulement la discussion : pas la barre, pas ses outils.
-            bulle.rouvrir(zone, t.contenu.messages, reference, depuis, t.cadre);
+            bulle.rouvrir(zone, t.contenu.messages, reference, depuis, t.cadre,
+                { outil: t.contenu.outil, poubelle: true });
         }
         majOccupe();
         editor.requestUpdate();

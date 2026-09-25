@@ -424,7 +424,7 @@
     padding-top: 0;
 }
 
-.agent-pied-poubelle {
+.agent-pied-bouton {
     display: inline-flex;
     align-items: center;
     justify-content: center;
@@ -438,14 +438,19 @@
     cursor: pointer;
 }
 
-.agent-pied-poubelle:hover {
+.agent-pied-bouton:hover {
     background: rgba(128, 128, 128, 0.18);
     color: var(--text-normal);
 }
 
-.agent-pied-poubelle svg {
+.agent-pied-bouton svg {
     width: 15px;
     height: 15px;
+}
+
+/* La tête de chat à DROITE, loin de la poubelle : l'une enchaîne, l'autre efface. */
+.agent-pied-discuter {
+    margin-left: auto;
 }
 
 .agent-pied-confirmation {
@@ -495,7 +500,7 @@
     background: #b81f32;
 }
 
-.agent-pied-poubelle:focus-visible,
+.agent-pied-bouton:focus-visible,
 .agent-pied-annuler:focus-visible,
 .agent-pied-supprimer:focus-visible {
     outline: 2px solid var(--color-accent);

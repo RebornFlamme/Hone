@@ -476,3 +476,94 @@ test('emporté vers le haut par le défilement, le widget passe sous la barre d\
     { x: c.x + c.width / 2, y: c.y + c.height - 10 });
     expect(dedans).toBe('carte');
 });
+
+// ═══ La carte devient un chat (la tête de chat du pied) ═════════════════════
+
+const discuter = (page: Page) => carte(page).locator('[aria-label="Discuter de cette réponse"]');
+
+async function chatVisible(page: Page): Promise<void> {
+    await expect(bulle(page)).toBeVisible();
+    await expect.poll(() => bulle(page).evaluate((el) => getComputedStyle(el).opacity)).toBe('1');
+    await page.waitForTimeout(300);
+}
+
+test('la tête de chat d\'une carte neuve la change en chat qui commence par sa réponse', async () => {
+    const { page } = h;
+    await surligner(page, 'Ligne 3 :', 'Révolution française');
+    await carteOuverte(page);
+    const reponse = (await carte(page).locator('.agent-action-corps').textContent()) ?? '';
+    // Une réponse neuve n'est pas encore une annotation : pas de poubelle.
+    await expect(discuter(page)).toBeVisible();
+    await expect(carte(page).locator('.agent-pied-poubelle')).toBeHidden();
+
+    await discuter(page).click();
+    await expect(carte(page)).toHaveCount(0);
+    await chatVisible(page);
+    await expect(page.locator('.agent-message')).toHaveCount(1);
+    await expect(page.locator('.agent-message.mod-agent')).toHaveText(reponse);
+    await expect(bulle(page).locator('.agent-pied-poubelle')).toBeHidden();
+
+    // La question part avec la réponse de l'outil dans l'historique.
+    await page.locator('.agent-bulle-champ').fill('Et en 1792 ?');
+    await page.keyboard.press('Enter');
+    await expect(page.locator('.agent-message.mod-agent').nth(1)).toContainText('après 1 message', { timeout: 5_000 });
+
+    // Une seule icône, celle de l'outil, qui rouvre toute la conversation.
+    await page.locator('.agent-bulle [aria-label="Fermer"]').click();
+    await expect(traces(page)).toHaveCount(1);
+    await expect(traces(page)).toHaveAttribute('aria-label', /^Traduire :/);
+    await traces(page).click();
+    await chatVisible(page);
+    await expect(page.locator('.agent-message')).toHaveCount(3);
+    await expect(bulle(page).locator('.agent-pied-poubelle')).toBeVisible();
+});
+
+test('une carte rouverte depuis la marge devient un chat sans doubler son icône', async () => {
+    const { page } = h;
+    await surligner(page, 'Ligne 3 :', 'Révolution française');
+    await outilPuisFermer(page, 'Définir');
+    await traces(page).click();
+    await expect.poll(() => carte(page).evaluate((el) => getComputedStyle(el).opacity)).toBe('1');
+    await expect(carte(page).locator('.agent-pied-poubelle')).toBeVisible();
+
+    await discuter(page).click();
+    await chatVisible(page);
+    await expect(bulle(page).locator('.agent-pied-poubelle')).toBeVisible();
+    await page.locator('.agent-bulle [aria-label="Fermer"]').click();
+    await expect(traces(page)).toHaveCount(1);
+    await expect(traces(page)).toHaveAttribute('aria-label', /^Définir :/);
+
+    // La poubelle du chat retire l'annotation entière.
+    await traces(page).click();
+    await chatVisible(page);
+    await bulle(page).locator('.agent-pied-poubelle').click();
+    await bulle(page).locator('.agent-pied-supprimer').click();
+    await expect(traces(page)).toHaveCount(0);
+});
+
+test('le chat prend la place et la taille de la carte posée', async () => {
+    const { page } = h;
+    await surligner(page, 'Ligne 3 :', 'Révolution française');
+    await carteOuverte(page);
+    await deplacerCarte(page, -120, 120);
+    const m = (await carte(page).boundingBox())!;
+    await tirer(page, m.x + m.width - 2, m.y + m.height - 2, 40, 80);
+    const posee = (await carte(page).boundingBox())!;
+
+    await discuter(page).click();
+    await chatVisible(page);
+    const chat = (await bulle(page).boundingBox())!;
+    for (const k of ['x', 'y', 'width', 'height'] as const) expect(Math.abs(chat[k] - posee[k])).toBeLessThan(1.5);
+});
+
+test('la confirmation de suppression cache la tête de chat', async () => {
+    const { page } = h;
+    await surligner(page, 'Ligne 3 :', 'Révolution française');
+    await outilPuisFermer(page, 'Définir');
+    await traces(page).click();
+    await expect.poll(() => carte(page).evaluate((el) => getComputedStyle(el).opacity)).toBe('1');
+    await carte(page).locator('.agent-pied-poubelle').click();
+    await expect(discuter(page)).toBeHidden();
+    await carte(page).locator('.agent-pied-annuler').click();
+    await expect(discuter(page)).toBeVisible();
+});

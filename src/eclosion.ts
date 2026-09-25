@@ -50,7 +50,7 @@ export interface Eclosion {
  * Sans effet (et résolue aussitôt) si l'utilisateur a demandé moins de
  * mouvement dans son système.
  */
-export function eclore(bouton: HTMLElement, bulle: HTMLElement): Eclosion {
+export function eclore(bouton: HTMLElement | DOMRect, bulle: HTMLElement): Eclosion {
     // Pas d'animation : la bulle, masquée en attendant d'être placée (voir
     // BulleAgent.ouvrir), doit apparaître tout de suite.
     const sansAnimation = (): Eclosion => {
@@ -68,7 +68,9 @@ export function eclore(bouton: HTMLElement, bulle: HTMLElement): Eclosion {
     // translation client → ce repère. Le fantôme, monté dans le même parent,
     // y vit aussi.
     const rb = bulle.getBoundingClientRect();
-    const rk = bouton.getBoundingClientRect();
+    // Une boîte plutôt qu'un élément : le bouton a pu être retiré entre-temps
+    // (la tête de chat d'une carte qui devient le chat, agentLayer).
+    const rk = bouton instanceof DOMRect ? bouton : bouton.getBoundingClientRect();
     const dx = parseFloat(bulle.style.left || '0') - rb.left;
     const dy = parseFloat(bulle.style.top || '0') - rb.top;
 

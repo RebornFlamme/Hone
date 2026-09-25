@@ -6,6 +6,8 @@
 //     tester l'affichage (attente, puis réponse) sans dépendre du back.
 // ═══════════════════════════════════════════════════════════════════════════
 
+import type { Message } from './traces';
+
 /** Ce que la bulle sait de la zone sur laquelle porte la question. */
 export interface ContexteQuestion {
     /** Le texte sélectionné, tel quel. */
@@ -20,11 +22,16 @@ export interface ContexteQuestion {
 /** Le délai simulé, juste assez pour voir l'indicateur d'attente. */
 const LATENCE_FACTICE = 700;
 
-export async function repondre(question: string, contexte: ContexteQuestion): Promise<string> {
+/**
+ * `historique` : la conversation avant cette question. Elle commence par la
+ * réponse d'un outil quand le chat est né de sa carte.
+ */
+export async function repondre(question: string, contexte: ContexteQuestion, historique: Message[] = []): Promise<string> {
     await new Promise((r) => setTimeout(r, LATENCE_FACTICE));
     const extrait = contexte.texte.length > 60 ? `${contexte.texte.slice(0, 60)}…` : contexte.texte;
+    const suite = historique.length > 0 ? ` (après ${historique.length} message${historique.length > 1 ? 's' : ''})` : '';
     return `Réponse factice : le back n'est pas encore branché. `
-        + `Question reçue : « ${question} », sur « ${extrait} ».`;
+        + `Question reçue : « ${question} »${suite}, sur « ${extrait} ».`;
 }
 
 // ── Les outils de la barre ──────────────────────────────────────────────────

@@ -1448,7 +1448,7 @@ function eclore(bouton, bulle) {
   const parent = bulle.parentElement;
   if (!parent) return sansAnimation();
   const rb = bulle.getBoundingClientRect();
-  const rk = bouton.getBoundingClientRect();
+  const rk = bouton instanceof DOMRect ? bouton : bouton.getBoundingClientRect();
   const dx = parseFloat(bulle.style.left || "0") - rb.left;
   const dy = parseFloat(bulle.style.top || "0") - rb.top;
   const cible = { x: rb.left + dx, y: rb.top + dy, w: rb.width, h: rb.height };
@@ -1635,10 +1635,11 @@ function dedans(a, cadre) {
 
 // src/repondre.ts
 var LATENCE_FACTICE = 700;
-async function repondre(question, contexte) {
+async function repondre(question, contexte, historique = []) {
   await new Promise((r) => setTimeout(r, LATENCE_FACTICE));
   const extrait = contexte.texte.length > 60 ? `${contexte.texte.slice(0, 60)}\u2026` : contexte.texte;
-  return `R\xE9ponse factice : le back n'est pas encore branch\xE9. Question re\xE7ue : \xAB ${question} \xBB, sur \xAB ${extrait} \xBB.`;
+  const suite = historique.length > 0 ? ` (apr\xE8s ${historique.length} message${historique.length > 1 ? "s" : ""})` : "";
+  return `R\xE9ponse factice : le back n'est pas encore branch\xE9. Question re\xE7ue : \xAB ${question} \xBB${suite}, sur \xAB ${extrait} \xBB.`;
 }
 var LATENCE_OUTIL = 1500;
 var FACTICE = {
@@ -1661,13 +1662,17 @@ var PiedSupprimer = class {
   poubelleEl;
   confirmationEl;
   annulerEl;
-  constructor(app, onSupprimer) {
+  /** La tête de chat : absente du pied d'un chat, qui est déjà une conversation. */
+  discuterEl = null;
+  poubelle = false;
+  discuter = false;
+  constructor(app, onSupprimer, onDiscuter) {
     this.el = document.createElement("div");
     this.el.classList.add("agent-pied");
     this.el.hidden = true;
     this.poubelleEl = this.el.appendChild(document.createElement("button"));
     this.poubelleEl.type = "button";
-    this.poubelleEl.classList.add("agent-pied-poubelle");
+    this.poubelleEl.classList.add("agent-pied-bouton", "agent-pied-poubelle");
     this.poubelleEl.setAttribute("aria-label", "Supprimer l'annotation");
     this.poubelleEl.title = "Supprimer l'annotation";
     (0, import_fragment.setIcon)(app, this.poubelleEl, "trash-2");
@@ -1691,6 +1696,16 @@ var PiedSupprimer = class {
     supprimerEl.classList.add("agent-pied-supprimer");
     supprimerEl.textContent = "Supprimer";
     supprimerEl.addEventListener("click", () => onSupprimer());
+    if (onDiscuter) {
+      const el = this.el.appendChild(document.createElement("button"));
+      el.type = "button";
+      el.classList.add("agent-pied-bouton", "agent-pied-discuter");
+      el.setAttribute("aria-label", "Discuter de cette r\xE9ponse");
+      el.title = "Discuter de cette r\xE9ponse";
+      (0, import_fragment.setIcon)(app, el, "cat");
+      el.addEventListener("click", () => onDiscuter());
+      this.discuterEl = el;
+    }
     this.confirmationEl.addEventListener("keydown", (e) => {
       if (e.key !== "Escape") return;
       this.confirmer(false);
@@ -1698,13 +1713,20 @@ var PiedSupprimer = class {
     });
     this.confirmer(false);
   }
-  /** Montre la poubelle (réponse rouverte depuis la marge) ou masque le pied. */
+  /** Montre ou masque la poubelle (réponse rouverte depuis la marge). */
   montrer(visible) {
-    this.el.hidden = !visible;
+    this.poubelle = visible;
+    this.confirmer(false);
+  }
+  /** Montre ou masque la tête de chat (réponse arrivée, pas en erreur). */
+  montrerDiscuter(visible) {
+    this.discuter = visible;
     this.confirmer(false);
   }
   confirmer(oui) {
-    this.poubelleEl.hidden = oui;
+    this.el.hidden = !this.poubelle && !(this.discuter && this.discuterEl);
+    this.poubelleEl.hidden = oui || !this.poubelle;
+    if (this.discuterEl) this.discuterEl.hidden = oui || !this.discuter;
     this.confirmationEl.hidden = !oui;
     if (oui) this.annulerEl.focus();
   }
@@ -1920,7 +1942,7 @@ var ActionAgent = class extends import_fragment2.Component {
   reference;
   onFermer;
   evitement;
-  constructor(app, parentEl, reference, onFermer, evitement, onSupprimer) {
+  constructor(app, parentEl, reference, onFermer, evitement, onSupprimer, onDiscuter) {
     super();
     this.app = app;
     this.parentEl = parentEl;
@@ -1955,7 +1977,7 @@ var ActionAgent = class extends import_fragment2.Component {
     this.corpsEl = this.carteEl.appendChild(document.createElement("div"));
     this.corpsEl.classList.add("agent-action-corps");
     this.corpsEl.setAttribute("aria-live", "polite");
-    this.pied = new PiedSupprimer(app, onSupprimer);
+    this.pied = new PiedSupprimer(app, onSupprimer, onDiscuter);
     this.carteEl.appendChild(this.pied.el);
     this.widget = new Widget(this.carteEl, tete, () => reference.getBoundingClientRect());
     this.carteEl.addEventListener("keydown", (e) => e.stopPropagation());
@@ -1966,6 +1988,13 @@ var ActionAgent = class extends import_fragment2.Component {
   /** La réponse que la carte montre, ou null (l'agent réfléchit encore, ou a échoué). */
   resultat() {
     return this.montre;
+  }
+  /**
+   * La boîte client de la tête de chat du pied, à lire AVANT de fermer la
+   * carte : le chat qui la remplace sort de là (eclosion.ts).
+   */
+  boutonDiscuter() {
+    return this.pied.discuterEl?.getBoundingClientRect() ?? this.carteEl.getBoundingClientRect();
   }
   /** Où la carte a été posée et à quelle taille, null si on n'y a pas touché. */
   cadre() {
@@ -2007,6 +2036,7 @@ var ActionAgent = class extends import_fragment2.Component {
     this.preparer(outil);
     this.widget.reprendre(cadre);
     this.pied.montrer(true);
+    this.pied.montrerDiscuter(true);
     this.montre = { outil, texte };
     this.corpsEl.textContent = texte;
     this.lancement++;
@@ -2033,6 +2063,7 @@ var ActionAgent = class extends import_fragment2.Component {
     this.corpsEl.textContent = "";
     this.corpsEl.classList.remove("is-error");
     this.pied.montrer(false);
+    this.pied.montrerDiscuter(false);
     this.widget.oublier();
     this.montre = null;
   }
@@ -2080,6 +2111,7 @@ var ActionAgent = class extends import_fragment2.Component {
   ouvrirCarte(texte, erreur) {
     this.corpsEl.textContent = texte;
     this.corpsEl.classList.toggle("is-error", erreur);
+    this.pied.montrerDiscuter(!erreur);
     this.decalageCarte = this.cercleEl.getBoundingClientRect().top - this.reference.getBoundingClientRect().top;
     this.carteEl.style.opacity = "0";
     this.parentEl.appendChild(this.carteEl);
@@ -2369,6 +2401,8 @@ var BulleAgent = class extends import_fragment4.Component {
    * pour une bulle ouverte par la tête de chat de la barre.
    */
   seule = null;
+  /** L'outil dont la conversation continue la réponse, null pour un chat né de la barre. */
+  origine = null;
   /**
    * Prévenu à chaque fermeture, avec la conversation et son passage tels
    * qu'ils étaient : le calque en garde une trace dans la marge (traces.ts).
@@ -2449,15 +2483,20 @@ var BulleAgent = class extends import_fragment4.Component {
    * pose à droite du trait (`reference`), comme la carte d'un outil, et sort
    * de l'icône cliquée (`depuis`). On relit une discussion, on n'en lance pas
    * une autre : les outils de la barre n'ont rien à y faire.
+   *
+   * Sert aussi à la carte d'un outil qui devient un chat : `depuis` est alors
+   * la boîte de sa tête de chat, déjà retirée, et `outil` son outil. La
+   * poubelle n'y est que si la carte venait de la marge.
    */
-  rouvrir(contexte, messages, reference, depuis, cadre) {
+  rouvrir(contexte, messages, reference, depuis, cadre, options) {
     this.fermer();
     this.seule = { reference, depuis };
+    this.origine = options.outil ?? null;
     this.widget.reprendre(cadre);
     this.ouvrir(contexte);
     this.filEl.replaceChildren();
     for (const m of messages) this.ajouterMessage(m.auteur, m.texte);
-    this.pied.montrer(true);
+    this.pied.montrer(options.poubelle);
   }
   /** Ouverte seule, depuis la marge : sa croix ferme tout, il n'y a pas de barre. */
   estSeule() {
@@ -2513,6 +2552,8 @@ var BulleAgent = class extends import_fragment4.Component {
     const messages = this.conversation();
     const contexte = this.contexte;
     const cadre = this.widget.cadre;
+    const origine = this.origine;
+    this.origine = null;
     this.widget.oublier();
     this.eclosion?.annuler();
     this.eclosion = null;
@@ -2526,7 +2567,7 @@ var BulleAgent = class extends import_fragment4.Component {
     this.enAttente = false;
     this.seule = null;
     this.envoyerEl.disabled = false;
-    this.onFermer(messages, contexte, cadre);
+    this.onFermer(messages, contexte, cadre, origine);
   }
   /**
    * Recalcule la position. Public : le calque l'appelle quand la zone bouge
@@ -2566,6 +2607,7 @@ var BulleAgent = class extends import_fragment4.Component {
     const question = this.champEl.value.trim();
     const contexte = this.contexte;
     if (!question || !contexte || this.enAttente) return;
+    const historique = this.conversation();
     this.ajouterMessage("moi", question);
     this.champEl.value = "";
     this.ajusterChamp();
@@ -2576,7 +2618,7 @@ var BulleAgent = class extends import_fragment4.Component {
     const reponseEl = this.ajouterMessage("agent", "\u2026");
     reponseEl.classList.add("is-pending");
     try {
-      const reponse = await repondre(question, contexte);
+      const reponse = await repondre(question, contexte, historique);
       if (!estCourante()) return;
       reponseEl.textContent = reponse;
     } catch (err) {
@@ -2672,6 +2714,10 @@ var CarnetTraces = class {
     this.placer();
     return trace;
   }
+  /** Une réponse est ouverte depuis la marge : c'est déjà une annotation. */
+  aUneOuverte() {
+    return this.ouverte !== null;
+  }
   /** Le trait de la trace, recalé sur son passage (le texte a pu bouger). */
   traitDe(trace) {
     return { ...trace.trait, pos: trace.zone.from + trace.decalageTrait };
@@ -2746,11 +2792,12 @@ var CarnetTraces = class {
     const el = document.createElement("button");
     el.type = "button";
     el.classList.add("agent-trace");
-    const libelle = t.contenu.type === "outil" ? OUTILS[t.contenu.outil].libelle : "Conversation";
+    const outil = t.contenu.outil;
+    const libelle = outil ? OUTILS[outil].libelle : "Conversation";
     const extrait = t.zone.texte.replace(/\s+/g, " ").trim();
     el.setAttribute("aria-label", `${libelle} : ${extrait}`);
     el.title = `${libelle} : \xAB ${extrait.length > 60 ? `${extrait.slice(0, 60)}\u2026` : extrait} \xBB`;
-    (0, import_fragment5.setIcon)(this.app, el, t.contenu.type === "outil" ? OUTILS[t.contenu.outil].icone : "cat");
+    (0, import_fragment5.setIcon)(this.app, el, outil ? OUTILS[outil].icone : "cat");
     el.style.position = "absolute";
     el.style.pointerEvents = "auto";
     el.addEventListener("click", () => {
@@ -2972,9 +3019,10 @@ function createAgentLayer(ctx) {
     obstacles: () => [...barresAnnotation(), ...passage()],
     limites
   });
-  const bulle = new BulleAgent(ctx.app, paneEl, barre.dom, barre.chatEl, (messages, contexte, cadre) => {
-    if (!suppression && contexte && trait && messages.length > 0) carnet.fermer(contexte, trait, { type: "chat", messages }, cadre);
-    else carnet.oublierOuverte();
+  const bulle = new BulleAgent(ctx.app, paneEl, barre.dom, barre.chatEl, (messages, contexte, cadre, origine2) => {
+    if (!suppression && contexte && trait && messages.length > 0) {
+      carnet.fermer(contexte, trait, { type: "chat", messages, ...origine2 ? { outil: origine2 } : {} }, cadre);
+    } else carnet.oublierOuverte();
     if (!barre.estOuverte()) {
       zone = null;
       editor.requestUpdate();
@@ -2985,6 +3033,7 @@ function createAgentLayer(ctx) {
     limites
   }, () => supprimer(), reference);
   const action = new ActionAgent(ctx.app, paneEl, reference, () => {
+    if (enchainement) return;
     const resultat = action.resultat();
     if (!suppression && resultat && zone && trait) carnet.fermer(zone, trait, { type: "outil", ...resultat }, action.cadre());
     else carnet.oublierOuverte();
@@ -2994,7 +3043,31 @@ function createAgentLayer(ctx) {
   }, {
     obstacles: () => [...barresAnnotation(), ...passage()],
     limites
-  }, () => supprimer());
+  }, () => supprimer(), () => discuter());
+  let enchainement = false;
+  const discuter = () => {
+    const resultat = action.resultat();
+    if (!resultat || !zone || !trait) return;
+    const depuis = action.boutonDiscuter();
+    const cadre = action.cadre();
+    const poubelle = carnet.aUneOuverte();
+    enchainement = true;
+    try {
+      action.fermer();
+    } finally {
+      enchainement = false;
+    }
+    bulle.rouvrir(
+      zone,
+      [{ auteur: "agent", texte: resultat.texte }],
+      reference,
+      depuis,
+      cadre,
+      { outil: resultat.outil, poubelle }
+    );
+    majOccupe();
+    editor.requestUpdate();
+  };
   const rouvrir = (t, depuis) => {
     action.fermer();
     barre.fermer();
@@ -3004,7 +3077,14 @@ function createAgentLayer(ctx) {
     if (t.contenu.type === "outil") {
       action.montrer(t.contenu.outil, t.contenu.texte, depuis, t.cadre);
     } else {
-      bulle.rouvrir(zone, t.contenu.messages, reference, depuis, t.cadre);
+      bulle.rouvrir(
+        zone,
+        t.contenu.messages,
+        reference,
+        depuis,
+        t.cadre,
+        { outil: t.contenu.outil, poubelle: true }
+      );
     }
     majOccupe();
     editor.requestUpdate();
@@ -3022,7 +3102,7 @@ function createAgentLayer(ctx) {
       suppression = false;
     }
     zone = null;
-    annotation?.source.erase(t.zone.chemin, t.trait.id);
+    if (!t.trait.id.startsWith(SELECTION)) annotation?.source.erase(t.zone.chemin, t.trait.id);
     majOccupe();
     editor.requestUpdate();
   };
@@ -3071,6 +3151,45 @@ function createAgentLayer(ctx) {
     connaitre();
     if (neuf) surTrait(path, neuf);
   });
+  let pointeurEnfonce = false;
+  let minuterie = 0;
+  const surSelection = () => {
+    if (occupe()) return;
+    const { from, to } = editor.getSelection();
+    if (from === to) return;
+    const glyphe = editor.coordsAtPos(from);
+    const rects = editor.coordsForRange(from, to);
+    if (!glyphe || rects.length === 0) return;
+    const left = Math.min(...rects.map((r) => r.left));
+    const top = Math.min(...rects.map((r) => r.top));
+    const right = Math.max(...rects.map((r) => r.right));
+    const bottom = Math.max(...rects.map((r) => r.bottom));
+    const coin = (x, y) => ({ dx: x - glyphe.left, dy: y - glyphe.top });
+    zone = { texte: texteEntre(editor, from, to), chemin: chemin(), from, to };
+    trait = {
+      id: `${SELECTION}${Date.now()}`,
+      pos: from,
+      points: [coin(left, top), coin(right, top), coin(right, bottom), coin(left, bottom)],
+      color: "",
+      width: 0,
+      tool: "surligneur"
+    };
+    barre.montrer();
+    editor.requestUpdate();
+  };
+  const surPointerDown = () => {
+    pointeurEnfonce = true;
+    window.clearTimeout(minuterie);
+  };
+  const surPointerUp = () => {
+    if (!pointeurEnfonce) return;
+    pointeurEnfonce = false;
+    minuterie = window.setTimeout(surSelection, 0);
+  };
+  const surTouche = () => window.clearTimeout(minuterie);
+  editor.contentEl.addEventListener("pointerdown", surPointerDown);
+  document.addEventListener("pointerup", surPointerUp);
+  document.addEventListener("keydown", surTouche, true);
   const replacer = () => {
     barre.placer();
     void bulle.placer();
@@ -3112,6 +3231,10 @@ function createAgentLayer(ctx) {
   });
   return () => {
     paneEl.removeEventListener("pointerdown", bloquer, true);
+    editor.contentEl.removeEventListener("pointerdown", surPointerDown);
+    document.removeEventListener("pointerup", surPointerUp);
+    document.removeEventListener("keydown", surTouche, true);
+    window.clearTimeout(minuterie);
     paneEl.classList.remove("agent-occupe");
     paneEl.classList.remove("agent-pane");
     observateur.disconnect();
@@ -3127,6 +3250,7 @@ function createAgentLayer(ctx) {
     carnet.detruire();
   };
 }
+var SELECTION = "selection-";
 var MarqueZone = class _MarqueZone {
   r;
   constructor(r) {
