@@ -1,4 +1,5 @@
 import { Component, setIcon, type App, type WidgetHandle } from 'fragment';
+import { arc, boutonIcone } from './bouton';
 import { eclore, ressort, type Eclosion } from './eclosion';
 import { Fenetre, type Cadre } from './fenetre';
 import type { Repere } from './repere';
@@ -95,10 +96,7 @@ export class ActionAgent extends Component {
         this.cercleEl.setAttribute('role', 'status');
         this.iconeCercleEl = this.cercleEl.appendChild(document.createElement('span'));
         this.iconeCercleEl.classList.add('agent-action-icone');
-        // L'arc qui tourne autour du rond : un quart de cercle, en SVG.
-        this.cercleEl.insertAdjacentHTML('beforeend',
-            '<svg class="agent-action-arc" viewBox="0 0 60 60" aria-hidden="true">'
-            + '<circle cx="30" cy="30" r="28" pathLength="100"/></svg>');
+        arc(this.cercleEl);
 
         // ── La carte, la réponse arrivée ──
         this.carteEl = document.createElement('div');
@@ -117,13 +115,7 @@ export class ActionAgent extends Component {
         this.sourceEl.setAttribute('aria-label', 'Réponse tirée du web');
         setIcon(app, this.sourceEl, 'globe');
         this.sourceEl.hidden = true;
-        const fermerEl = tete.appendChild(document.createElement('button'));
-        fermerEl.type = 'button';
-        fermerEl.classList.add('agent-bulle-fermer');
-        fermerEl.setAttribute('aria-label', 'Fermer');
-        fermerEl.title = 'Fermer';
-        setIcon(app, fermerEl, 'x');
-        fermerEl.addEventListener('click', () => this.fermer());
+        boutonIcone(app, tete, 'x', 'Fermer', () => this.fermer(), 'agent-bulle-fermer');
 
         this.corpsEl = this.carteEl.appendChild(document.createElement('div'));
         this.corpsEl.classList.add('agent-action-corps');

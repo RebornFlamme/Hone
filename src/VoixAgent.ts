@@ -1,5 +1,6 @@
 import { Component, setIcon, type App, type WidgetHandle } from 'fragment';
 import { resorber } from './ActionAgent';
+import { arc, boutonIcone } from './bouton';
 import { ressort } from './eclosion';
 import type { Repere } from './repere';
 import { Onde, auHasard, niveaux } from './onde';
@@ -125,16 +126,10 @@ export class VoixAgent extends Component {
         this.contenuEl = this.el.appendChild(document.createElement('div'));
         this.contenuEl.classList.add('agent-voix-contenu');
 
-        const fermerEl = this.contenuEl.appendChild(document.createElement('button'));
-        fermerEl.type = 'button';
-        fermerEl.classList.add('agent-voix-fermer');
-        fermerEl.setAttribute('aria-label', 'Fermer');
-        fermerEl.title = 'Fermer';
-        setIcon(app, fermerEl, 'x');
-        fermerEl.addEventListener('click', () => {
+        boutonIcone(app, this.contenuEl, 'x', 'Fermer', () => {
             this.parCroix = true;
             this.fermer();
-        });
+        }, 'agent-voix-fermer');
 
         this.contenuEl.appendChild(this.onde.el);
 
@@ -150,9 +145,7 @@ export class VoixAgent extends Component {
         this.stopEl.classList.add('agent-voix-stop');
         this.stopEl.appendChild(document.createElement('span')).classList.add('agent-voix-carre');
         // L'arc qui tourne des outils : l'agent réfléchit.
-        this.stopEl.insertAdjacentHTML('beforeend',
-            '<svg class="agent-action-arc" viewBox="0 0 60 60" aria-hidden="true">'
-            + '<circle cx="30" cy="30" r="28" pathLength="100"/></svg>');
+        arc(this.stopEl);
         this.stopEl.addEventListener('click', () => this.surStop());
 
         this.el.addEventListener('keydown', (e) => e.stopPropagation());

@@ -1,4 +1,5 @@
-import { setIcon, type App } from 'fragment';
+import type { App } from 'fragment';
+import { boutonIcone } from './bouton';
 
 // ═══════════════════════════════════════════════════════════════════════════
 //  Le pied d'une carte d'outil ou d'un chat. Deux boutons :
@@ -35,13 +36,8 @@ export class PiedSupprimer {
         this.el.classList.add('agent-pied');
         this.el.hidden = true;
 
-        this.poubelleEl = this.el.appendChild(document.createElement('button'));
-        this.poubelleEl.type = 'button';
-        this.poubelleEl.classList.add('agent-pied-bouton', 'agent-pied-poubelle');
-        this.poubelleEl.setAttribute('aria-label', "Supprimer l'annotation");
-        this.poubelleEl.title = "Supprimer l'annotation";
-        setIcon(app, this.poubelleEl, 'trash-2');
-        this.poubelleEl.addEventListener('click', () => this.confirmer(true));
+        this.poubelleEl = boutonIcone(app, this.el, 'trash-2', "Supprimer l'annotation",
+            () => this.confirmer(true), 'agent-pied-bouton', 'agent-pied-poubelle');
 
         this.confirmationEl = this.el.appendChild(document.createElement('div'));
         this.confirmationEl.classList.add('agent-pied-confirmation');
@@ -66,14 +62,8 @@ export class PiedSupprimer {
         supprimerEl.addEventListener('click', () => onSupprimer());
 
         if (onDiscuter) {
-            const el = this.el.appendChild(document.createElement('button'));
-            el.type = 'button';
-            el.classList.add('agent-pied-bouton', 'agent-pied-discuter');
-            el.setAttribute('aria-label', 'Discuter de cette réponse');
-            el.title = 'Discuter de cette réponse';
-            setIcon(app, el, 'cat');
-            el.addEventListener('click', () => onDiscuter());
-            this.discuterEl = el;
+            this.discuterEl = boutonIcone(app, this.el, 'cat', 'Discuter de cette réponse',
+                () => onDiscuter(), 'agent-pied-bouton', 'agent-pied-discuter');
         }
 
         // Échap renonce, comme « Annuler ». La carte arrête déjà les touches.

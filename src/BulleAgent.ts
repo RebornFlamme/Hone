@@ -1,4 +1,5 @@
-import { Component, setIcon, type App } from 'fragment';
+import { Component, type App } from 'fragment';
+import { boutonIcone } from './bouton';
 import { eclore, type Eclosion } from './eclosion';
 import { Fenetre, type Cadre } from './fenetre';
 import type { Repere } from './repere';
@@ -102,13 +103,7 @@ export class BulleAgent extends Component {
         this.extraitEl = tete.appendChild(document.createElement('div'));
         this.extraitEl.classList.add('agent-bulle-extrait');
 
-        const fermerEl = tete.appendChild(document.createElement('button'));
-        fermerEl.type = 'button';
-        fermerEl.classList.add('agent-bulle-fermer');
-        fermerEl.setAttribute('aria-label', 'Fermer');
-        fermerEl.title = 'Fermer';
-        setIcon(app, fermerEl, 'x');
-        fermerEl.addEventListener('click', () => this.fermer());
+        boutonIcone(app, tete, 'x', 'Fermer', () => this.fermer(), 'agent-bulle-fermer');
 
         // ── Le fil : vide tant qu'on n'a rien demandé, masqué en CSS ──
         this.filEl = this.dom.appendChild(document.createElement('div'));
@@ -139,21 +134,10 @@ export class BulleAgent extends Component {
             }
         });
 
-        this.microEl = saisie.appendChild(document.createElement('button'));
-        this.microEl.type = 'button';
-        this.microEl.classList.add('agent-bulle-micro');
-        this.microEl.setAttribute('aria-label', 'Reprendre la discussion à voix haute');
-        this.microEl.title = 'Reprendre la discussion à voix haute';
+        this.microEl = boutonIcone(app, saisie, 'mic', 'Reprendre la discussion à voix haute', () => onMicro(), 'agent-bulle-micro');
         this.microEl.hidden = true;
-        setIcon(app, this.microEl, 'mic');
-        this.microEl.addEventListener('click', () => onMicro());
 
-        this.envoyerEl = saisie.appendChild(document.createElement('button'));
-        this.envoyerEl.type = 'submit';
-        this.envoyerEl.classList.add('agent-bulle-envoyer');
-        this.envoyerEl.setAttribute('aria-label', 'Envoyer');
-        this.envoyerEl.title = 'Envoyer';
-        setIcon(app, this.envoyerEl, 'arrow-up');
+        this.envoyerEl = boutonIcone(app, saisie, 'arrow-up', 'Envoyer', null, 'agent-bulle-envoyer');
 
         // La poubelle, seulement sur une conversation rouverte depuis la marge.
         this.pied = new PiedSupprimer(app, onSupprimer);
