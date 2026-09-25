@@ -1,8 +1,8 @@
-import { setIcon, type App, type Editor, type OverlayHost, type Stroke } from 'fragment';
-import { posVisibility } from './coeur';
+import { setIcon, type App, type Editor, type WidgetHandle, type WidgetLayer } from 'fragment';
 import { OUTILS } from './ActionAgent';
+import type { Stroke } from './annotation';
+import type { Cadre } from './fenetre';
 import type { ContexteQuestion, Outil } from './repondre';
-import type { Cadre } from './widget';
 
 // ═══════════════════════════════════════════════════════════════════════════
 //  L'historique de l'agent, dans la marge. Une carte d'outil ou une
@@ -13,8 +13,14 @@ import type { Cadre } from './widget';
 //  ★ POURQUOI la marge GAUCHE : la droite est celle de la barre d'annotation,
 //    rangée là par défaut, et la colonne de texte y finit bien après la fin
 //    des lignes (les icônes flottaient à 300 px du passage). À gauche, la marge
-//    est libre et l'icône se tient au début de la ligne visée. La barre
-//    d'annotation peut quand même y être traînée : les icônes l'évitent.
+//    est libre et l'icône se tient au début de la ligne visée.
+//
+//  ★ COMMENT : chaque icône est un widget du cœur avec une ancre de MARGE
+//    (`mode: 'gutter'`, api-ancrage-widgets.md §6bis). Le cœur la recale sur
+//    le texte à l'édition, la masque quand son passage est replié ou que la
+//    marge est trop étroite. Une ancre de marge impose la largeur de la bande :
+//    le widget est une rangée de toute la bande, transparente aux clics, et
+//    l'icône s'y range côté texte.
 //
 //  Ce fichier ne sait ni ouvrir une carte ni ouvrir le chat : il range les
 //  traces, les dessine et prévient le calque (agentLayer) qu'on en a cliqué une.
@@ -56,19 +62,13 @@ export interface Trace {
 /** Côté d'une icône, et l'écart entre deux icônes posées sur la même hauteur. */
 const TAILLE = 24;
 const ECART = 6;
-/**
- * L'écart ajouté entre la bande de marge et l'icône la plus proche du texte.
- * Nul : la bande garde déjà 12 px avec la colonne (GUTTER_GAP, ViewOverlays),
- * qui commence elle-même avant le texte. Mesuré : 30 px entre icône et texte.
- */
-const RETRAIT = 0;
 
 let prochainId = 1;
 
 export class CarnetTraces {
 
     private readonly traces: Trace[] = [];
-    private readonly icones = new Map<number, { el: HTMLButtonElement; off: () => void }>();
+    private readonly icones = new Map<number, { el: HTMLButtonElement; rangee: HTMLElement; handle: WidgetHandle }>();
     /**
      * La trace dont la carte ou le chat est ouvert : son icône s'efface le temps
      * de la lecture, mais garde sa place, pour que ses voisines ne glissent pas.
@@ -77,26 +77,22 @@ export class CarnetTraces {
 
     private readonly app: App;
     private readonly editor: Editor;
-    private readonly overlays: OverlayHost;
+    private readonly widgets: WidgetLayer;
     private readonly chemin: () => string;
     private readonly onOuvrir: (trace: Trace, depuis: HTMLElement) => void;
-    /** Ce que les icônes ne recouvrent jamais (la barre d'annotation), en coordonnées client. */
-    private readonly obstacles: () => DOMRect[];
 
     constructor(
         app: App,
         editor: Editor,
-        overlays: OverlayHost,
+        widgets: WidgetLayer,
         chemin: () => string,
         onOuvrir: (trace: Trace, depuis: HTMLElement) => void,
-        obstacles: () => DOMRect[],
     ) {
         this.app = app;
         this.editor = editor;
-        this.overlays = overlays;
+        this.widgets = widgets;
         this.chemin = chemin;
         this.onOuvrir = onOuvrir;
-        this.obstacles = obstacles;
     }
 
     /**
@@ -167,7 +163,6 @@ export class CarnetTraces {
     /** Pose les icônes du document affiché, et retire les autres. */
     placer(): void {
         const chemin = this.chemin();
-        const bande = this.overlays.gutterBand('left');
         const visibles = this.traces.filter((t) => t.zone.chemin === chemin);
         for (const id of [...this.icones.keys()]) {
             if (!visibles.some((t) => t.id === id)) this.retirer(id);
@@ -180,48 +175,27 @@ export class CarnetTraces {
             .map((t) => ({ t, ligne: this.editor.coordsForRange(t.zone.from, t.zone.from + 1)[0] ?? null }))
             .sort((a, b) => (a.ligne?.top ?? 0) - (b.ligne?.top ?? 0));
         for (const { t, ligne } of places) {
-            const el = this.icone(t);
+            const { el, handle } = this.icone(t);
             el.classList.toggle('is-ouverte', t.id === this.ouverte);
-            // Hors du viewport rendu : on garde la dernière position (voir WidgetLayer).
+            // Hors du viewport rendu : le cœur garde la dernière position.
             if (!ligne) continue;
             const top = (ligne.top + ligne.bottom) / 2 - TAILLE / 2;
             let col = 0;
             while ((colonnes[col] ?? []).some((y) => Math.abs(y - top) < TAILLE + 2)) col++;
             (colonnes[col] ??= []).push(top);
-            if (!bande) { el.style.display = 'none'; continue; }
-            el.style.left = `${bande.left + bande.width - RETRAIT - TAILLE - col * (TAILLE + ECART)}px`;
-            el.style.top = `${top}px`;
-            el.style.display = posVisibility(this.editor, t.zone.from) === 'hidden' ? 'none' : '';
-            if (el.style.display === '') this.contourner(el, bande);
+            el.style.marginRight = `${col * (TAILLE + ECART)}px`;
+            // Centrée sur la ligne : l'ancre de marge part du haut du glyphe.
+            handle.setAnchor({ mode: 'gutter', side: 'left', pos: t.zone.from, dy: top - ligne.top });
         }
-    }
-
-    /**
-     * L'icône tombe sur la barre d'annotation : elle passe de l'autre côté,
-     * vers l'extérieur d'abord, vers le texte s'il n'y a pas la place, et se
-     * masque si la marge n'a de place nulle part. Les décalages client et
-     * document sont les mêmes : on corrige `left` du dépassement mesuré.
-     */
-    private contourner(el: HTMLElement, bande: { left: number; width: number }): void {
-        const r = el.getBoundingClientRect();
-        const gene = this.obstacles().find((o) =>
-            r.left < o.right && r.right > o.left && r.top < o.bottom && r.bottom > o.top);
-        if (!gene) return;
-        const left = parseFloat(el.style.left);
-        const dehors = left - (r.right - gene.left) - ECART;
-        const dedans = left + (gene.right - r.left) + ECART;
-        if (dehors >= bande.left) el.style.left = `${dehors}px`;
-        else if (dedans + TAILLE <= bande.left + bande.width - RETRAIT) el.style.left = `${dedans}px`;
-        else el.style.display = 'none';
     }
 
     detruire(): void {
         for (const id of [...this.icones.keys()]) this.retirer(id);
     }
 
-    private icone(t: Trace): HTMLButtonElement {
+    private icone(t: Trace): { el: HTMLButtonElement; handle: WidgetHandle } {
         const deja = this.icones.get(t.id);
-        if (deja) return deja.el;
+        if (deja) return deja;
         const el = document.createElement('button');
         el.type = 'button';
         el.classList.add('agent-trace');
@@ -235,8 +209,6 @@ export class CarnetTraces {
         el.setAttribute('aria-label', `${libelle} : ${extrait}`);
         el.title = `${libelle} : « ${extrait.length > 60 ? `${extrait.slice(0, 60)}…` : extrait} »`;
         setIcon(this.app, el, icone);
-        el.style.position = 'absolute';
-        el.style.pointerEvents = 'auto'; // le plan document est pointer-events:none
         el.addEventListener('click', () => {
             // D'abord onOuvrir : il referme ce qui était ouvert, qui range sa
             // propre trace (fermer()) en lisant `ouverte`. Ce n'est qu'ensuite
@@ -246,13 +218,21 @@ export class CarnetTraces {
             // Effacée APRÈS : la carte sort de l'icône, qui doit encore être là.
             requestAnimationFrame(() => this.placer());
         });
-        const off = this.overlays.mount(el, 'document');
-        this.icones.set(t.id, { el, off });
-        return el;
+        const rangee = document.createElement('div');
+        rangee.classList.add('agent-trace-rangee');
+        rangee.appendChild(el);
+        const handle = this.widgets.addWidget(rangee, { mode: 'gutter', side: 'left', pos: t.zone.from, dy: 0 });
+        // La rangée couvre toute la bande : seule l'icône capte les clics.
+        rangee.style.pointerEvents = 'none';
+        const posee = { el, rangee, handle };
+        this.icones.set(t.id, posee);
+        return posee;
     }
 
     private retirer(id: number): void {
-        this.icones.get(id)?.off();
+        const icone = this.icones.get(id);
+        icone?.handle.remove();
+        icone?.rangee.remove();
         this.icones.delete(id);
     }
 }

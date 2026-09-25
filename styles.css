@@ -1,7 +1,23 @@
-/* La barre et la bulle de l'agent (views/agent/). Montées dans le pane de la
-   vue, comme la toolbar, d'où le `absolute` : Floating UI écrit left/top dans
-   le repère de leur parent positionné. Tout est en var(--…) de index.css, pour
-   suivre le thème clair comme le sombre. */
+/* Tout ce que l'agent pose sur la page est un widget du cœur (WidgetLayer),
+   monté dans le plan document : `left/top` y sont écrits par le cœur, et le
+   plan défile avec le texte. Les z-index se comparent entre widgets du plan
+   (dont la racine est à 200, au-dessus des surlignages). Tout est en var(--…)
+   de index.css, pour suivre le thème clair comme le sombre. */
+
+/* Le plan document vit dans le scroller de l'éditeur, qui impose sa police
+   de code. Les widgets de l'agent reprennent celle de l'interface (:root,
+   index.css) : sans ça, la carte et le chat s'écrivaient en chasse fixe. */
+.agent-bulle,
+.agent-action-carte,
+.agent-action-cercle,
+.agent-voix,
+.agent-barre-hote,
+.agent-trace-rangee,
+.agent-eclosion {
+    font-family: 'Inter', system-ui, Avenir, Helvetica, Arial, sans-serif;
+    line-height: 1.5;
+    font-weight: 400;
+}
 
 .agent-bulle {
     position: absolute;
@@ -11,7 +27,6 @@
     display: flex;
     flex-direction: column;
     width: 320px;
-    max-width: calc(100% - 16px);
     border-radius: 12px;
     background: var(--background-secondary);
     border: 1px solid var(--tab-outline-color);
@@ -22,83 +37,64 @@
 
 /* ── La barre verticale (BarreAgent.ts) ─────────────────────────────────── */
 
-/* Même aspect que la toolbar du cœur (toolbar.css) : fond, filet, rayon, ombre.
-   Mais pas sa mécanique : celle-ci est collée à un passage par Floating UI. */
-.agent-barre {
-    position: absolute;
-    top: 0;
-    left: 0;
-    z-index: 940;   /* sous la bulle (950), au-dessus de la toolbar (900) */
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: 4px;
-    padding: 4px;
-    border-radius: 10px;
-    background: var(--background-secondary);
-    border: 1px solid var(--tab-outline-color);
-    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
-    color: var(--text-normal);
+/* C'est la Toolbar du cœur (toolbar.css) : fond, filet, rayon et ombre en
+   viennent. L'hôte est un widget 0×0 ancré au document ; la Toolbar s'y pose. */
+.agent-barre-hote {
+    z-index: 940;   /* sous la bulle (950) */
 }
 
-.agent-barre-bouton {
-    display: inline-flex;
-    align-items: center;
+.agent-barre.toolbar {
+    z-index: auto;
+    gap: 4px;
+}
+
+.agent-barre .toolbar-section {
+    gap: 4px;
+}
+
+/* Pas de poignée : la barre appartient à son passage, on ne la traîne pas. */
+.agent-barre .toolbar-handle {
+    display: none;
+}
+
+/* Les outils cachés tant que la barre n'est pas rallongée : l'attribut
+   `hidden` ne suffit pas, le `display: flex` de .toolbar-item l'écraserait. */
+.agent-barre .toolbar-item[hidden] {
+    display: none;
+}
+
+/* Les boutons de l'agent : des ronds cerclés, plus que des items de barre. */
+.agent-barre .toolbar-item.agent-barre-bouton {
     justify-content: center;
     width: 28px;
     height: 28px;
+    box-sizing: border-box;
     padding: 0;
     border: 1px solid var(--tab-outline-color);
     border-radius: 50%;
-    background: transparent;
     color: var(--text-normal);
     cursor: pointer;
 }
 
-/* Les outils cachés tant que la barre n'est pas rallongée : l'attribut
-   `hidden` ne suffit pas, `display: inline-flex` l'écraserait. */
-.agent-barre-bouton[hidden] {
-    display: none;
-}
-
-.agent-barre-bouton:hover:not(:disabled) {
-    background: rgba(128, 128, 128, 0.18);
-}
-
-.agent-barre-bouton:disabled {
-    cursor: default;
-    opacity: 0.5;
-}
-
-.agent-barre-bouton:focus-visible {
-    outline: 2px solid var(--color-accent);
-    outline-offset: 1px;
-}
-
-.agent-barre-bouton svg {
-    width: 16px;
-    height: 16px;
+.agent-barre .toolbar-item .toolbar-item-icon {
+    opacity: 1;
 }
 
 /* La croix et « … » ne sont pas des outils : plus petits, sans cercle. */
-.agent-barre-fermer,
-.agent-barre-plus {
+.agent-barre .toolbar-item.agent-barre-fermer,
+.agent-barre .toolbar-item.agent-barre-plus {
+    justify-content: center;
     width: 20px;
     height: 20px;
-    border: none;
-    border-radius: 6px;
-    color: var(--text-muted);
+    box-sizing: border-box;
+    padding: 0;
+    cursor: pointer;
 }
 
-.agent-barre-fermer svg,
-.agent-barre-plus svg {
+.agent-barre .agent-barre-fermer svg,
+.agent-barre .agent-barre-plus svg {
     width: 14px;
     height: 14px;
-}
-
-.agent-barre-fermer:hover,
-.agent-barre-plus:hover {
-    color: var(--text-normal);
 }
 
 /* ── L'en-tête : la zone citée, et la croix ─────────────────────────────── */
@@ -407,7 +403,6 @@
     left: 0;
     z-index: 950;
     width: 300px;
-    max-width: calc(100% - 16px);
     border-radius: 12px;
     background: var(--background-secondary);
     border: 1px solid var(--tab-outline-color);
@@ -560,8 +555,17 @@
 
 /* Une icône par réponse fermée, à la hauteur de son passage. Plus discrète que
    les boutons de la barre : elle se lit comme une note en marge, pas comme un
-   outil. Posée dans le plan document, elle suit le texte au scroll. */
+   outil. Le widget du cœur est la RANGÉE : une ancre de marge lui impose la
+   largeur de la bande. L'icône s'y range côté texte. */
+.agent-trace-rangee {
+    display: flex;
+    justify-content: flex-end;
+    box-sizing: border-box;
+}
+
 .agent-trace {
+    pointer-events: auto;
+    flex: none;
     display: inline-flex;
     align-items: center;
     justify-content: center;
@@ -735,13 +739,6 @@
     max-height: none;
 }
 
-/* Le pane de la note rogne ce qui en dépasse. Sans ça, un widget posé dans le
-   texte, emporté vers le haut par le défilement, passait PAR-DESSUS la barre
-   d'onglets et l'en-tête de la vue (le pane du cœur ne rogne rien). `clip` et
-   pas `hidden` : aucun conteneur de défilement de plus. */
-.agent-pane {
-    overflow: clip;
-}
 
 /* ── La discussion orale (VoixAgent.ts, onde.ts) ────────────────────────────
    Un rond de 48 px (celui des outils) qui s'étire en pilule de 196 px

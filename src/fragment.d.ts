@@ -1,11 +1,19 @@
 // ═══════════════════════════════════════════════════════════════════════════
-//  Ce que le plugin connaît de Fragment, en types seulement.
+//  Ce que le plugin importe de Fragment (`require('fragment')`, core/api.ts).
 //
-//  À l'exécution, `require('fragment')` sert `fragmentApi` (core/api.ts) : seuls
-//  `Plugin`, `Component` et `setIcon` sont des valeurs lues ici. Le reste décrit
-//  des objets que le cœur nous passe (le contexte d'un calque, l'éditeur, le
-//  plugin d'annotation). Recopié du cœur et réduit à ce que l'agent appelle :
-//  si le cœur change une de ces signatures, c'est ici qu'il faut la suivre.
+//  Les signatures sont recopiées du cœur, réduites à ce que l'agent appelle.
+//  Deux familles :
+//
+//  - DÉJÀ EXPORTÉ par fragmentApi : Component, Plugin, setIcon, Toolbar,
+//    ToolbarItem.
+//  - À EXPORTER par le cœur (demande faite à l'équipe) : WidgetLayer
+//    (core/layers/WidgetLayer.ts), posVisibility (core/layers/visibility.ts),
+//    hasText (core/editor/Editor.ts). Tant qu'ils ne sont pas dans
+//    fragmentApi, le plugin ne se charge pas : il est écrit pour l'API finale,
+//    sans copie de ces classes.
+//
+//  L'accès au plugin d'annotation n'est pas ici : il n'a pas encore d'API
+//  publique, tout ce qu'on en lit passe par src/annotation.ts.
 // ═══════════════════════════════════════════════════════════════════════════
 
 declare module 'fragment' {
@@ -17,7 +25,15 @@ declare module 'fragment' {
         unload(): void;
         onload(): void;
         onunload(): void;
+        addChild<T extends Component>(component: T): T;
+        removeChild<T extends Component>(component: T): T;
         register(cb: () => unknown): void;
+        registerDomEvent<K extends keyof WindowEventMap>(
+            el: Window, type: K, cb: (evt: WindowEventMap[K]) => unknown, options?: boolean | AddEventListenerOptions): void;
+        registerDomEvent<K extends keyof DocumentEventMap>(
+            el: Document, type: K, cb: (evt: DocumentEventMap[K]) => unknown, options?: boolean | AddEventListenerOptions): void;
+        registerDomEvent<K extends keyof HTMLElementEventMap>(
+            el: HTMLElement, type: K, cb: (evt: HTMLElementEventMap[K]) => unknown, options?: boolean | AddEventListenerOptions): void;
     }
 
     export interface PluginManifest { id: string; name: string; version: string }
@@ -31,10 +47,36 @@ declare module 'fragment' {
 
     export function setIcon(app: App, el: HTMLElement, name: string): void;
 
+    // ── La barre d'outils (core/Toolbar.ts) ─────────────────────────────────
+
+    export type ToolbarOrientation = 'horizontal' | 'vertical';
+
+    export class Toolbar extends Component {
+        dom: HTMLElement;
+        handleEl: HTMLElement;
+        constructor(parentEl?: HTMLElement);
+        addItem(cb: (item: ToolbarItem) => unknown): this;
+        addSeparator(): this;
+        setColumns(columns: number): this;
+        setOrientation(orientation: ToolbarOrientation): this;
+        onHide(callback: () => unknown): this;
+        showAtPosition(x: number, y: number): this;
+        moveTo(x: number, y: number): this;
+        hide(): this;
+    }
+
+    export class ToolbarItem {
+        dom: HTMLElement;
+        setIcon(icon: string): this;
+        setLabel(label: string): this;
+        setTooltip(tooltip: string): this;
+        setDisabled(disabled: boolean): this;
+        onClick(callback: (evt: MouseEvent) => unknown): this;
+    }
+
     // ── L'app, vue par l'agent ──────────────────────────────────────────────
 
     export interface App {
-        plugins: { plugins: Map<string, unknown> };
         workspace: { on(name: 'file-open', cb: () => void): EventRef };
     }
 
@@ -81,13 +123,18 @@ declare module 'fragment' {
         getSelection(): EditorRange;
     }
 
-    // ── Les calques (core/layers/types.ts) ──────────────────────────────────
+    /** À exporter : core/editor/Editor.ts. */
+    export function hasText(surface: DocumentSurface): surface is Editor;
+
+    // ── Les calques (core/layers/) ──────────────────────────────────────────
+
+    export type GutterSide = 'left' | 'right';
 
     export interface OverlayHost {
         mount(el: HTMLElement, plane: 'viewport' | 'document'): () => void;
         clientToViewport(x: number, y: number): { x: number; y: number } | null;
         clientToDocument(x: number, y: number): { x: number; y: number } | null;
-        gutterBand(side: 'left' | 'right'): { left: number; width: number } | null;
+        gutterBand(side: GutterSide): { left: number; width: number } | null;
         onGeometryChange(cb: () => void): () => void;
     }
 
@@ -107,22 +154,29 @@ declare module 'fragment' {
         create(ctx: LayerContext): () => void;
     }
 
-    // ── Le plugin d'annotation (views/annotation) ───────────────────────────
+    export type WidgetAnchor =
+        | { mode: 'viewport'; x: number; y: number }
+        | { mode: 'document'; pos: number; dx: number; dy: number }
+        | { mode: 'gutter'; side: GutterSide; pos: number; dy: number };
 
-    export interface Stroke {
-        id: string;
-        pos: number;
-        points: readonly { dx: number; dy: number }[];
-        color: string;
-        width: number;
-        tool: 'crayon' | 'surligneur';
+    export interface WidgetHandle {
+        getAnchor(): WidgetAnchor;
+        setAnchor(anchor: WidgetAnchor): void;
+        remove(): void;
     }
 
-    export interface AnnotationPlugin {
-        source: {
-            strokes(path: string): readonly Stroke[];
-            erase(path: string, id: string): void;
-            on(name: 'change', cb: (path: string) => void): EventRef;
-        };
+    /** À exporter : core/layers/WidgetLayer.ts. */
+    export class WidgetLayer {
+        constructor(editor: DocumentSurface | null, overlays: OverlayHost);
+        addWidget(el: HTMLElement, anchor: WidgetAnchor): WidgetHandle;
+        documentAnchorAt(clientX: number, clientY: number): WidgetAnchor | null;
+        viewportAnchorAt(clientX: number, clientY: number): WidgetAnchor | null;
+        gutterAnchorAt(clientY: number, side: GutterSide): WidgetAnchor | null;
+        gutterFits(side: GutterSide): boolean;
+        canAnchorToDocument(): boolean;
+        destroy(): void;
     }
+
+    /** À exporter : core/layers/visibility.ts. */
+    export function posVisibility(surface: DocumentSurface, pos: number): 'rendered' | 'hidden' | 'offscreen';
 }

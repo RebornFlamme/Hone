@@ -1,11 +1,7 @@
-import {
-    autoUpdate, computePosition, flip, hide, offset, shift,
-    type VirtualElement,
-} from '@floating-ui/dom';
-import { Component, setIcon, type App } from 'fragment';
-import { eviter, type Boite } from './eviter';
+import { Component, Toolbar, type ToolbarItem, type WidgetHandle } from 'fragment';
 import { OUTILS } from './ActionAgent';
 import { rallonger, type Rallonge } from './rallonge';
+import type { Repere } from './repere';
 import type { Outil } from './repondre';
 
 /** Ce que la barre fait faire au calque : elle ne connaît ni le chat ni la zone. */
@@ -21,119 +17,123 @@ export interface ActionsBarre {
 }
 
 /**
- * La barre verticale qui apparaît à droite d'un passage surligné ou entouré.
+ * La barre verticale qui apparaît à côté d'un passage surligné ou entouré.
  *
- * De haut en bas : une croix, la tête de chat, le micro (la discussion
- * orale, VoixAgent), les deux outils favoris (définir, visualiser) et « … ». Un clic sur « … » allonge la barre vers le
- * bas (rallonge.ts) et montre les autres outils (aider, traduire, résumer) ;
- * le « … » disparaît alors, et la barre reste longue. Les outils n'ont encore
- * Un clic sur un outil le lance : la barre se retire, remplacée par le
- * rond de l'outil (ActionAgent). Comme la bulle, elle ne se ferme QU'À LA
- * CROIX : ni clic à côté, ni Échap. Placée par Floating UI à droite du passage,
- * à gauche s'il n'y a pas la place.
+ * C'est la Toolbar du cœur (core/Toolbar.ts), la même que celle de
+ * l'annotation : mêmes items, même aspect, même orientation verticale. De
+ * haut en bas : une croix, la tête de chat, le micro, les deux outils favoris
+ * (définir, visualiser) et « … », qui allonge la barre (rallonge.ts) et montre
+ * aider, traduire, résumer.
  *
- * ★ POURQUOI pas core/Toolbar : celle-ci est un mode armé que l'on DÉPLACE à la
- *   poignée, positionnée par l'appelant. La barre de l'agent, elle, est collée
- *   à un passage et le suit au scroll : c'est le travail de Floating UI, qui
- *   écrirait left/top par-dessus le moveTo de la Toolbar. Elle reprend en
- *   revanche son aspect (agent.css, mêmes variables).
+ * ★ COMMENT elle suit le texte : la Toolbar se monte dans le parent qu'on lui
+ *   donne, et s'y borne. Son parent est ici un HÔTE 0×0, lui-même un widget
+ *   ancré au document (Repere) : l'hôte défile avec la note, la barre avec lui.
+ *   La Toolbar se pose à MARGE (8 px) du coin de son parent, d'où le décalage
+ *   de l'hôte.
+ *
+ * Deux écarts à la Toolbar, en CSS seulement (styles.css) : pas de poignée
+ * (la barre appartient au passage, on ne la traîne pas), et des items masqués
+ * par `hidden`. Échap la ferme, comme toute Toolbar.
  */
 export class BarreAgent extends Component {
 
-    readonly dom: HTMLElement;
-    /** Le bouton tête de chat : le chat s'aligne sur lui. */
-    readonly chatEl: HTMLButtonElement;
+    /** La racine de la Toolbar, lue par le calque (le rond en sort). */
+    get dom(): HTMLElement {
+        return this.toolbar.dom;
+    }
 
-    private readonly parentEl: HTMLElement;
-    private readonly reference: VirtualElement;
+    /** La tête de chat : le chat s'aligne sur elle et en sort. */
+    chatEl!: HTMLElement;
+
+    private readonly toolbar: Toolbar;
+    private readonly hote: HTMLElement;
+    private handle: WidgetHandle | null = null;
+    private readonly repere: Repere;
     private readonly actions: ActionsBarre;
-    /** Ce que la barre ne doit jamais recouvrir, et le cadre où elle reste (voir eviter.ts). */
-    private readonly evitement: { obstacles: () => Boite[]; limites: () => Boite };
-    /**
-     * La hauteur de la barre avant la rallonge. Floating UI centre la barre sur
-     * le passage (`right`) : on la décale de la moitié de ce qu'elle a gagné
-     * depuis, lu sur sa hauteur COURANTE, pour que son haut ne bouge ni pendant
-     * le geste ni après.
-     */
-    private hauteurCourte: number | null = null;
     private rallonge: Rallonge | null = null;
     /** Vrai pendant cacher() : le démontage ne prévient pas le calque. */
     private silencieux = false;
-    /** « … », et les outils qu'il fait apparaître. */
-    private readonly plusEl: HTMLButtonElement;
-    private readonly caches: HTMLButtonElement[];
+    /** Vrai pendant que l'agent retire lui-même la Toolbar : ce n'est pas Échap. */
+    private enRetrait = false;
+    private plus!: ToolbarItem;
+    private readonly caches: ToolbarItem[] = [];
 
-    constructor(
-        app: App,
-        parentEl: HTMLElement,
-        reference: VirtualElement,
-        actions: ActionsBarre,
-        evitement: { obstacles: () => Boite[]; limites: () => Boite },
-    ) {
+    constructor(repere: Repere, actions: ActionsBarre) {
         super();
-        this.parentEl = parentEl;
-        this.reference = reference;
+        this.repere = repere;
         this.actions = actions;
-        this.evitement = evitement;
 
-        this.dom = document.createElement('div');
-        this.dom.classList.add('agent-barre');
-        this.dom.setAttribute('role', 'toolbar');
-        this.dom.setAttribute('aria-orientation', 'vertical');
-        this.dom.setAttribute('aria-label', 'Agent');
+        this.hote = document.createElement('div');
+        this.hote.classList.add('agent-barre-hote');
 
-        const fermerEl = this.bouton(app, 'x', 'Fermer', 'agent-barre-fermer');
-        fermerEl.addEventListener('click', () => this.fermer());
+        this.toolbar = new Toolbar(this.hote);
+        this.toolbar.dom.classList.add('agent-barre');
+        this.toolbar.dom.setAttribute('role', 'toolbar');
+        this.toolbar.dom.setAttribute('aria-orientation', 'vertical');
+        this.toolbar.dom.setAttribute('aria-label', 'Agent');
+        this.toolbar.setOrientation('vertical').setColumns(1);
 
-        this.chatEl = this.bouton(app, 'cat', "Discuter avec l'agent");
-        this.chatEl.addEventListener('click', () => this.actions.onChat());
+        // L'aspect de l'agent (des ronds cerclés, la croix et « … » plus
+        // discrets) est posé par ces classes, sur NOTRE barre seulement.
+        this.toolbar.addItem((i) => {
+            i.setIcon('x').setTooltip('Fermer').onClick(() => this.fermer());
+            i.dom.classList.add('agent-barre-fermer');
+        });
+        this.toolbar.addItem((i) => {
+            i.setIcon('cat').setTooltip("Discuter avec l'agent").onClick(() => this.actions.onChat());
+            i.dom.classList.add('agent-barre-bouton');
+            this.chatEl = i.dom;
+        });
+        this.toolbar.addItem((i) => {
+            i.setIcon('mic').setTooltip("Parler à l'agent").onClick(() => this.actions.onVoix());
+            i.dom.classList.add('agent-barre-bouton');
+        });
 
-        const microEl = this.bouton(app, 'mic', "Parler à l'agent", 'agent-barre-outil');
-        microEl.addEventListener('click', () => this.actions.onVoix());
-
-        // Les outils : les deux favoris, puis ceux que « … » fait apparaître.
-        const outil = (id: Outil): HTMLButtonElement => {
-            const el = this.bouton(app, OUTILS[id].icone, OUTILS[id].libelle, 'agent-barre-outil');
-            el.addEventListener('click', () => this.actions.onOutil(id));
-            return el;
+        const outil = (id: Outil): ToolbarItem => {
+            let item!: ToolbarItem;
+            this.toolbar.addItem((i) => {
+                item = i.setIcon(OUTILS[id].icone).setTooltip(OUTILS[id].libelle).onClick(() => this.actions.onOutil(id));
+                i.dom.classList.add('agent-barre-bouton');
+            });
+            return item;
         };
         outil('definir');
         outil('visualiser');
-        this.caches = (['aider', 'traduire', 'resumer'] as const).map((id) => {
-            const el = outil(id);
-            el.hidden = true;
-            return el;
+        for (const id of ['aider', 'traduire', 'resumer'] as const) {
+            const item = outil(id);
+            item.dom.hidden = true;
+            this.caches.push(item);
+        }
+
+        this.toolbar.addItem((i) => {
+            this.plus = i.setIcon('ellipsis').setTooltip("Plus d'outils").onClick(() => this.allonger());
+            i.dom.classList.add('agent-barre-plus');
         });
 
-        // « … » : allonge la barre pour montrer les autres outils, puis s'en va.
-        this.plusEl = this.bouton(app, 'ellipsis', "Plus d'outils", 'agent-barre-plus');
-        this.plusEl.addEventListener('click', () => {
-            if (this.rallonge) return;
-            this.hauteurCourte = this.dom.offsetHeight;
-            const rallonge = rallonger(this.dom, this.plusEl, this.caches);
-            this.rallonge = rallonge;
-            this.placer();
-            void rallonge.fini.then(() => {
-                // Fermée pendant l'animation : replier() a déjà tout remis.
-                if (this.rallonge !== rallonge) return;
-                this.plusEl.remove();
-            });
+        // Échap (le seul geste de fermeture que la Toolbar a en propre) ferme
+        // aussi la barre de l'agent : le calque doit le savoir.
+        this.toolbar.onHide(() => {
+            if (this._loaded && !this.enRetrait) this.fermer();
         });
 
         // Comme dans la bulle : les touches ne partent pas vers les raccourcis de l'app.
-        this.dom.addEventListener('keydown', (e) => e.stopPropagation());
+        this.toolbar.dom.addEventListener('keydown', (e) => e.stopPropagation());
     }
 
     estOuverte(): boolean {
         return this._loaded;
     }
 
+    /** Montre la barre à côté du trait courant (Repere). */
     montrer(): void {
-        if (!this._loaded) {
-            this.parentEl.appendChild(this.dom);
-            this.load();
-        }
-        this.placer();
+        if (this._loaded) this.retirerHote();
+        this.load();
+        this.handle = this.repere.monter(this.hote, () => {
+            // La Toolbar doit être montrée pour se mesurer.
+            this.toolbar.showAtPosition(0, 0);
+            const a = this.repere.aCote(this.toolbar.dom);
+            return a && a.mode === 'document' ? { ...a, dx: a.dx - DECALAGE, dy: a.dy - DECALAGE } : a;
+        });
     }
 
     fermer(): void {
@@ -150,39 +150,29 @@ export class BarreAgent extends Component {
         this.silencieux = false;
     }
 
-    onload(): void {
-        this.register(autoUpdate(this.reference, this.dom, () => this.placer()));
-    }
-
     onunload(): void {
         this.replier();
-        this.dom.remove();
+        this.retirerHote();
         if (!this.silencieux) this.actions.onFermer();
     }
 
-    /** Public, pour les mouvements que autoUpdate ne voit pas (voir agentLayer). */
-    placer(): void {
-        if (!this._loaded) return;
-        void computePosition(this.reference, this.dom, {
-            placement: 'right',
-            strategy: 'absolute',
-            middleware: [
-                offset({
-                    mainAxis: 12,
-                    crossAxis: this.hauteurCourte === null ? 0 : (this.dom.offsetHeight - this.hauteurCourte) / 2,
-                }),
-                flip({ padding: 8, fallbackPlacements: ['left'] }),
-                shift({ padding: 8 }),
-                // Après flip et shift : ils ignorent les AUTRES flottants, dont la
-                // barre d'annotation, rangée par défaut dans la même marge.
-                eviter(this.evitement),
-                hide(),
-            ],
-        }).then(({ x, y, middlewareData }) => {
-            if (!this._loaded) return;
-            this.dom.style.left = `${x}px`;
-            this.dom.style.top = `${y}px`;
-            this.dom.style.visibility = middlewareData.hide?.referenceHidden ? 'hidden' : 'visible';
+    private retirerHote(): void {
+        this.enRetrait = true;
+        this.toolbar.hide();
+        this.enRetrait = false;
+        this.handle?.remove();
+        this.handle = null;
+        this.hote.remove();
+    }
+
+    /** « … » : la barre s'allonge vers le bas et montre les autres outils, puis « … » s'en va. */
+    private allonger(): void {
+        if (this.rallonge) return;
+        const rallonge = rallonger(this.toolbar.dom, this.plus.dom, this.caches.map((i) => i.dom));
+        this.rallonge = rallonge;
+        void rallonge.fini.then(() => {
+            // Fermée pendant l'animation : replier() a déjà tout remis.
+            if (this.rallonge === rallonge) this.plus.dom.hidden = true;
         });
     }
 
@@ -190,20 +180,11 @@ export class BarreAgent extends Component {
     private replier(): void {
         this.rallonge?.annuler();
         this.rallonge = null;
-        this.hauteurCourte = null;
-        for (const el of this.caches) el.hidden = true;
-        this.plusEl.style.display = '';
-        if (!this.plusEl.isConnected) this.dom.appendChild(this.plusEl);
-    }
-
-    private bouton(app: App, icone: string | null, libelle: string, classe?: string): HTMLButtonElement {
-        const el = this.dom.appendChild(document.createElement('button'));
-        el.type = 'button';
-        el.classList.add('agent-barre-bouton');
-        if (classe) el.classList.add(classe);
-        el.setAttribute('aria-label', libelle);
-        el.title = libelle;
-        if (icone) setIcon(app, el, icone);
-        return el;
+        for (const i of this.caches) i.dom.hidden = true;
+        this.plus.dom.hidden = false;
+        this.plus.dom.style.display = '';
     }
 }
+
+/** La Toolbar se pose à MARGE_BORD (8 px) du coin de son parent, l'hôte 0×0. */
+const DECALAGE = 8;

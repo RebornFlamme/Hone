@@ -219,7 +219,8 @@ test('le micro est dans la barre courte, juste sous la tête de chat', async () 
     const { page } = h;
     await surligner(page, 'Ligne 3 :', 'Révolution');
     await expect(barre(page)).toBeVisible();
-    const libelles = await barre(page).locator('button:visible').evaluateAll((els) => els.map((el) => el.getAttribute('aria-label')));
+    // La barre est une Toolbar du cœur : ses items sont des .toolbar-item.
+    const libelles = await barre(page).locator('.toolbar-item:visible').evaluateAll((els) => els.map((el) => el.getAttribute('aria-label')));
     expect(libelles).toEqual(['Fermer', "Discuter avec l'agent", "Parler à l'agent", 'Définir', 'Visualiser', "Plus d'outils"]);
 });
 

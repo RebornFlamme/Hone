@@ -246,7 +246,8 @@ test('sélectionner à la souris fait apparaître la barre, sur le passage séle
     const { page } = h;
     await selectionner(page, 'Ligne 3 :', 'Révolution française');
     await expect(barre(page)).toBeVisible();
-    expect((await texteCompris(page)).trim()).toBe('Révolution française');
+    // Le surlignage est dessiné par l'éditeur à la frame suivante.
+    await expect.poll(async () => (await texteCompris(page)).trim()).toBe('Révolution française');
     // Pas d'encre : la sélection n'est pas un trait d'annotation.
     expect(await nbTraits(page)).toBe(0);
 
@@ -286,7 +287,8 @@ test('la barre d\'une sélection ouvre le chat, qui laisse sa trace ; la poubell
 
     await selectionner(page, 'Ligne 3 :', 'Révolution française');
     await expect(barre(page)).toBeVisible();
-    expect((await texteCompris(page)).trim()).toBe('Révolution française');
+    // Le surlignage est dessiné par l'éditeur à la frame suivante.
+    await expect.poll(async () => (await texteCompris(page)).trim()).toBe('Révolution française');
     await ouvrirChat(page);
     await bulle(page).locator('.agent-bulle-champ').fill('Qu\'est-ce que c\'est ?');
     await page.keyboard.press('Enter');

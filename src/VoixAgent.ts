@@ -1,11 +1,7 @@
-import {
-    autoUpdate, computePosition, flip, hide, offset, shift,
-    type VirtualElement,
-} from '@floating-ui/dom';
-import { Component, setIcon, type App } from 'fragment';
+import { Component, setIcon, type App, type WidgetHandle } from 'fragment';
 import { resorber } from './ActionAgent';
 import { ressort } from './eclosion';
-import { eviter, type Boite } from './eviter';
+import type { Repere } from './repere';
 import { Onde, auHasard, niveaux } from './onde';
 import { parler, type ContexteQuestion, type ReponseOrale } from './repondre';
 import type { Message } from './traces';
@@ -64,6 +60,9 @@ type Etat = 'rond' | 'ecoute' | 'reflechit' | 'repond' | 'refuse';
  * Comme la barre, le chat et les cartes, elle ne se ferme QU'À SA CROIX. Le
  * micro est rendu à la fermeture, et les tours passent au calque, qui en
  * fait écrire le bilan (ActionAgent.lancerBilan).
+ *
+ * La pilule est un widget du cœur, ancré au document à côté du trait
+ * (Repere) : elle défile avec la note.
  */
 export class VoixAgent extends Component {
 
@@ -92,8 +91,8 @@ export class VoixAgent extends Component {
     /** La voix de l'agent, quand le back en renvoie une. */
     private lecture: AudioBufferSourceNode | null = null;
 
-    private readonly parentEl: HTMLElement;
-    private readonly reference: VirtualElement;
+    private readonly repere: Repere;
+    private handle: WidgetHandle | null = null;
     /**
      * Prévenu à la fermeture, avec les tours de la discussion et la boîte
      * CLIENT de la pilule juste avant son retrait : le bilan en sort.
@@ -103,20 +102,15 @@ export class VoixAgent extends Component {
     private readonly onFermer: (historique: Message[], boite: DOMRect, parCroix: boolean) => void;
     /** Fermée par sa croix : seul ce geste demande un bilan. */
     private parCroix = false;
-    private readonly evitement: { obstacles: () => Boite[]; limites: () => Boite };
 
     constructor(
         app: App,
-        parentEl: HTMLElement,
-        reference: VirtualElement,
+        repere: Repere,
         onFermer: (historique: Message[], boite: DOMRect, parCroix: boolean) => void,
-        evitement: { obstacles: () => Boite[]; limites: () => Boite },
     ) {
         super();
-        this.parentEl = parentEl;
-        this.reference = reference;
+        this.repere = repere;
         this.onFermer = onFermer;
-        this.evitement = evitement;
 
         this.el = document.createElement('div');
         this.el.classList.add('agent-voix');
@@ -183,16 +177,15 @@ export class VoixAgent extends Component {
         this.poserEtat('rond');
 
         this.el.style.opacity = '0';
-        this.parentEl.appendChild(this.el);
         this.load();
+        // Le rond à la place de la barre : à côté du trait, centré sur lui.
+        this.handle = this.repere.monter(this.el, (el) => this.repere.aCote(el));
 
         // Le navigateur demande le micro pendant que la barre fond.
         const micro = this.ouvrirMicro(estCourant);
-        void this.placer().then(async () => {
-            if (!estCourant()) return;
-            const resorption = resorber(depuis, this.el);
-            this.animations.push(resorption);
-            await resorption.fini;
+        const resorption = resorber(depuis, this.el);
+        this.animations.push(resorption);
+        void resorption.fini.then(async () => {
             const ok = await micro;
             if (estCourant()) this.etirer(ok);
         });
@@ -200,10 +193,6 @@ export class VoixAgent extends Component {
 
     fermer(): void {
         this.unload();
-    }
-
-    onload(): void {
-        this.register(autoUpdate(this.reference, this.el, () => void this.placer()));
     }
 
     onunload(): void {
@@ -226,6 +215,8 @@ export class VoixAgent extends Component {
         this.enregistreur = null;
         this.morceaux = [];
         this.zone = null;
+        this.handle?.remove();
+        this.handle = null;
         this.el.remove();
         // Réutilisée d'un passage à l'autre : elle renaîtra ronde.
         this.el.style.opacity = '';
@@ -233,28 +224,6 @@ export class VoixAgent extends Component {
         this.el.classList.remove('est-posee');
         this.poserEtat('rond');
         this.onFermer(historique, boite, parCroix);
-    }
-
-    /** Public, pour les mouvements que autoUpdate ne voit pas (voir agentLayer). */
-    placer(): Promise<void> {
-        if (!this._loaded) return Promise.resolve();
-        return computePosition(this.reference, this.el, {
-            placement: 'right',
-            strategy: 'absolute',
-            middleware: [
-                // La place de la barre, le même écart au passage que le rond des outils.
-                offset({ mainAxis: 12 }),
-                flip({ padding: 8, fallbackPlacements: ['left'] }),
-                shift({ padding: 8 }),
-                eviter(this.evitement),
-                hide(),
-            ],
-        }).then(({ x, y, middlewareData }) => {
-            if (!this._loaded) return;
-            this.el.style.left = `${x}px`;
-            this.el.style.top = `${y}px`;
-            this.el.style.visibility = middlewareData.hide?.referenceHidden ? 'hidden' : 'visible';
-        });
     }
 
     // ── Le micro ────────────────────────────────────────────────────────────
@@ -449,41 +418,44 @@ export class VoixAgent extends Component {
         this.poserEtat(micro ? 'ecoute' : 'refuse');
         if (micro) this.ecouter();
         const lancement = this.lancement;
-        void this.placer().then(() => {
-            if (!this._loaded || this.lancement !== lancement) return;
-            const poser = (): void => {
-                this.el.classList.add('est-posee');
-                const { easing, duree } = ressort(RAIDEUR_SURVOL, AMORTISSEMENT_SURVOL);
-                this.el.style.transition = `width ${duree}ms ${easing}`;
-            };
-            if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
-                poser();
-                return;
-            }
+        // La pilule prend sa place à sa taille finale : à gauche du passage,
+        // elle s'étire vers la gauche, son bord côté passage ne bouge pas.
+        if (this.handle) {
+            const a = this.repere.aCote(this.el);
+            if (a) this.handle.setAnchor(a);
+        }
+        const poser = (): void => {
+            this.el.classList.add('est-posee');
+            const { easing, duree } = ressort(RAIDEUR_SURVOL, AMORTISSEMENT_SURVOL);
+            this.el.style.transition = `width ${duree}ms ${easing}`;
+        };
+        if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+            poser();
+            return;
+        }
 
-            // Même translation client → repère du parent qu'eclosion.ts.
-            const pilule = this.el.getBoundingClientRect();
-            const dx = parseFloat(this.el.style.left || '0') - pilule.left;
-            const dy = parseFloat(this.el.style.top || '0') - pilule.top;
-            const { easing, duree } = ressort(RAIDEUR, AMORTISSEMENT);
-            const etirement = this.el.animate(
-                [
-                    { left: `${rond.left + dx}px`, top: `${rond.top + dy}px`, width: `${rond.width}px` },
-                    { left: `${pilule.left + dx}px`, top: `${pilule.top + dy}px`, width: `${pilule.width}px` },
-                ],
-                { duration: duree, easing },
-            );
-            const contenu = this.contenuEl.animate(
-                [
-                    { opacity: 0, filter: 'blur(4px)', scale: '0.5' },
-                    { opacity: 1, filter: 'blur(0px)', scale: '1' },
-                ],
-                { duration: APPARITION, delay: RETARD_CONTENU, easing: 'ease-out', fill: 'backwards' },
-            );
-            this.animations.push({ annuler: () => { etirement.cancel(); contenu.cancel(); } });
-            void etirement.finished.then(() => {
-                if (this._loaded && this.lancement === lancement) poser();
-            }).catch(() => {});
-        });
+        // Même translation client → repère du parent qu'eclosion.ts.
+        const pilule = this.el.getBoundingClientRect();
+        const dx = parseFloat(this.el.style.left || '0') - pilule.left;
+        const dy = parseFloat(this.el.style.top || '0') - pilule.top;
+        const { easing, duree } = ressort(RAIDEUR, AMORTISSEMENT);
+        const etirement = this.el.animate(
+            [
+                { left: `${rond.left + dx}px`, top: `${rond.top + dy}px`, width: `${rond.width}px` },
+                { left: `${pilule.left + dx}px`, top: `${pilule.top + dy}px`, width: `${pilule.width}px` },
+            ],
+            { duration: duree, easing },
+        );
+        const contenu = this.contenuEl.animate(
+            [
+                { opacity: 0, filter: 'blur(4px)', scale: '0.5' },
+                { opacity: 1, filter: 'blur(0px)', scale: '1' },
+            ],
+            { duration: APPARITION, delay: RETARD_CONTENU, easing: 'ease-out', fill: 'backwards' },
+        );
+        this.animations.push({ annuler: () => { etirement.cancel(); contenu.cancel(); } });
+        void etirement.finished.then(() => {
+            if (this._loaded && this.lancement === lancement) poser();
+        }).catch(() => {});
     }
 }

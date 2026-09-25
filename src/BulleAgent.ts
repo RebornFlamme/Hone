@@ -1,13 +1,9 @@
-import {
-    autoUpdate, computePosition, flip, hide, offset, shift,
-    type ReferenceElement,
-} from '@floating-ui/dom';
 import { Component, setIcon, type App } from 'fragment';
 import { eclore, type Eclosion } from './eclosion';
-import { eviter, type Boite } from './eviter';
+import { Fenetre, type Cadre } from './fenetre';
+import type { Repere } from './repere';
 import { repondre, type ContexteQuestion, type Outil } from './repondre';
 import { PiedSupprimer } from './supprimer';
-import { Widget, type Cadre } from './widget';
 import type { Message } from './traces';
 
 /**
@@ -21,17 +17,12 @@ import type { Message } from './traces';
  *   répondu. Donc : ni clic extérieur, ni perte de focus, ni Échap. Seule la
  *   croix ferme, et le démontage de la vue.
  *
- * ★ POURQUOI Floating UI et pas un calcul maison comme le menu : la bulle suit
- *   la barre, qui suit le texte. Elle passe à gauche quand la place manque à
- *   droite (`flip`), reste dans son pane (`shift`) et disparaît quand la barre
- *   sort de l'écran (`hide`). `autoUpdate` la fait suivre au scroll et quand
- *   elle change de taille (le fil qui grandit).
+ * ★ COMMENT elle suit le texte : c'est un widget du cœur (fenetre.ts), ancré
+ *   au document à côté de la barre, ou du trait quand elle est seule. Elle
+ *   défile avec la note sans un écouteur ; on la déplace par son en-tête.
  *
- * ★ POURQUOI extends Component : show() est load(), fermer() est unload(),
- *   comme le menu. Le suivi de position est enregistré et retiré avec elle.
- *
- *     const bulle = new BulleAgent(app, paneEl, barre.dom, barre.chatEl, () => ...);
- *     bulle.ouvrir({ texte, chemin, from, to });
+ * ★ POURQUOI extends Component : ouvrir() est load(), fermer() est unload(),
+ *   comme le menu.
  */
 export class BulleAgent extends Component {
 
@@ -45,8 +36,8 @@ export class BulleAgent extends Component {
     /** Le micro de la saisie : seulement sur une discussion orale, qu'il reprend. */
     private readonly microEl: HTMLButtonElement;
     private readonly pied: PiedSupprimer;
-    /** Déplacer et agrandir la bulle (widget.ts). */
-    private readonly widget: Widget;
+    /** Le widget du cœur qui porte la bulle (fenetre.ts). */
+    private readonly fenetre: Fenetre;
 
     /** La zone sur laquelle porte la conversation, `null` bulle fermée. */
     private contexte: ContexteQuestion | null = null;
@@ -63,18 +54,15 @@ export class BulleAgent extends Component {
     /** L'animation d'ouverture en cours, à annuler si on ferme pendant. */
     private eclosion: Eclosion | null = null;
 
-    /** Le pane de la vue : la bulle y est montée, et `shift` l'y garde. */
-    private readonly parentEl: HTMLElement;
-    /** La barre : la bulle se pose à sa droite. */
-    private readonly reference: ReferenceElement;
-    /** Le bouton tête de chat : la bulle s'aligne sur son haut. */
-    private readonly alignEl: HTMLElement;
+    private readonly repere: Repere;
+    /** La barre et sa tête de chat : la bulle se pose à côté, alignée sur le bouton. */
+    private readonly barre: () => { dom: HTMLElement; chatEl: HTMLElement };
     /**
      * Une conversation rouverte depuis la marge (voir rouvrir()) : la bulle se
-     * tient seule contre le trait, sans la barre, et sort de l'icône. null
+     * tient seule contre le trait, sans la barre, et sort de `depuis`. null
      * pour une bulle ouverte par la tête de chat de la barre.
      */
-    private seule: { reference: ReferenceElement; depuis: HTMLElement | DOMRect } | null = null;
+    private seule: { depuis: HTMLElement | DOMRect; cadre: Cadre | null } | null = null;
     /** L'outil dont la conversation continue la réponse, null pour un chat né de la barre. */
     private origine: Outil | null = null;
     /**
@@ -88,25 +76,17 @@ export class BulleAgent extends Component {
      */
     private readonly onFermer: (messages: Message[], contexte: ContexteQuestion | null, cadre: Cadre | null, origine: Outil | null, bilan: string | null) => void;
 
-    /** Ce que la bulle ne doit jamais recouvrir, et le cadre où elle reste (voir eviter.ts). */
-    private readonly evitement: { obstacles: () => Boite[]; limites: () => Boite };
-
     constructor(
         app: App,
-        parentEl: HTMLElement,
-        reference: ReferenceElement,
-        alignEl: HTMLElement,
+        repere: Repere,
+        barre: () => { dom: HTMLElement; chatEl: HTMLElement },
         onFermer: (messages: Message[], contexte: ContexteQuestion | null, cadre: Cadre | null, origine: Outil | null, bilan: string | null) => void,
-        evitement: { obstacles: () => Boite[]; limites: () => Boite },
         onSupprimer: () => void,
-        trait: ReferenceElement,
         onMicro: () => void,
     ) {
         super();
-        this.parentEl = parentEl;
-        this.reference = reference;
-        this.alignEl = alignEl;
-        this.evitement = evitement;
+        this.repere = repere;
+        this.barre = barre;
         this.onFermer = onFermer;
 
         this.dom = document.createElement('div');
@@ -182,7 +162,7 @@ export class BulleAgent extends Component {
         // Attrapée par l'en-tête, elle se déplace ; par un bord, elle
         // s'agrandit. Son cadre est un écart au TRAIT, pas à la barre : il
         // vaut aussi pour la bulle rouverte seule, sans barre.
-        this.widget = new Widget(this.dom, tete, () => trait.getBoundingClientRect());
+        this.fenetre = new Fenetre(this.dom, tete, repere);
 
         // Ce qu'on tape dans la bulle ne doit pas atteindre les raccourcis de
         // l'app (Cmd+Z annulerait un trait d'annotation au lieu d'un mot).
@@ -210,7 +190,7 @@ export class BulleAgent extends Component {
 
     /**
      * Rouvre une conversation gardée dans la marge, SANS la barre : la bulle se
-     * pose à droite du trait (`reference`), comme la carte d'un outil, et sort
+     * pose à droite du trait, comme la carte d'un outil, et sort
      * de l'icône cliquée (`depuis`). On relit une discussion, on n'en lance pas
      * une autre : les outils de la barre n'ont rien à y faire.
      *
@@ -223,15 +203,14 @@ export class BulleAgent extends Component {
      * voix haute (le calque, `onMicro`).
      */
     rouvrir(
-        contexte: ContexteQuestion, messages: Message[], reference: ReferenceElement, depuis: HTMLElement | DOMRect,
+        contexte: ContexteQuestion, messages: Message[], depuis: HTMLElement | DOMRect,
         cadre: Cadre | null, options: { outil?: Outil; bilan?: string; poubelle: boolean },
     ): void {
         this.fermer();
-        this.seule = { reference, depuis };
+        // Là où on l'avait laissée, à la taille qu'on lui avait donnée.
+        this.seule = { depuis, cadre };
         this.origine = options.outil ?? null;
         this.bilan = options.bilan ?? null;
-        // Là où on l'avait laissée, à la taille qu'on lui avait donnée.
-        this.widget.reprendre(cadre);
         this.ouvrir(contexte);
         this.filEl.replaceChildren();
         if (this.bilan !== null) this.ajouterBilan(this.bilan);
@@ -276,19 +255,12 @@ export class BulleAgent extends Component {
 
         if (!this._loaded) {
             this.ouverture++;
-            // Invisible tant qu'elle n'est pas placée : l'éclosion part de sa
-            // position FINALE, qu'on ne connaît qu'après le calcul.
+            // Invisible le temps d'être posée : l'éclosion part de sa place FINALE.
             this.dom.style.opacity = '0';
-            this.parentEl.appendChild(this.dom);
             this.load();
-            const ouverture = this.ouverture;
-            void this.placer().then(() => {
-                if (!this._loaded || this.ouverture !== ouverture) return;
-                // La bulle sort du bouton tête de chat (eclosion.ts).
-                this.eclosion = eclore(this.seule?.depuis ?? this.alignEl, this.dom);
-            });
-        } else {
-            void this.placer();
+            this.poser();
+            // La bulle sort du bouton tête de chat, ou de l'icône (eclosion.ts).
+            this.eclosion = eclore(this.seule?.depuis ?? this.barre().chatEl, this.dom);
         }
         // preventScroll : le champ est déjà à l'écran, à côté de la barre.
         this.champEl.focus({ preventScroll: true });
@@ -310,28 +282,19 @@ export class BulleAgent extends Component {
         this.unload();
     }
 
-    onload(): void {
-        // autoUpdate rappelle placer() au scroll de tout ancêtre du bouton, au
-        // redimensionnement de la fenêtre et de la bulle elle-même (le fil qui
-        // grandit). Quand la barre bouge sans scroll, c'est le calque qui
-        // rappelle placer().
-        this.register(autoUpdate(this.seule?.reference ?? this.reference, this.dom, () => this.placer()));
-    }
-
     onunload(): void {
         const messages = this.conversation();
         const contexte = this.contexte;
-        const cadre = this.widget.cadre;
+        const cadre = this.fenetre.cadre();
         const origine = this.origine;
         const bilan = this.bilan;
         this.origine = null;
         this.bilan = null;
         this.microEl.hidden = true;
-        this.widget.oublier();
         this.eclosion?.annuler();
         this.eclosion = null;
         this.dom.style.opacity = '';
-        this.dom.remove();
+        this.fenetre.retirer();
         this.filEl.replaceChildren();
         this.champEl.value = '';
         // Pas ajusterChamp() : détaché du DOM, scrollHeight vaut 0 et le champ
@@ -346,40 +309,19 @@ export class BulleAgent extends Component {
     }
 
     /**
-     * Recalcule la position. Public : le calque l'appelle quand la zone bouge
-     * sans qu'aucun scroll ni redimensionnement ne le signale (frappe au-dessus,
-     * split redimensionné).
+     * La première place : le cadre gardé d'une conversation rouverte, sinon à
+     * côté de la barre, alignée sur la tête de chat, à 8 px de son bord ;
+     * seule, à 12 px du trait, sur son haut, comme la carte d'un outil.
      */
-    placer(): Promise<void> {
-        if (!this._loaded) return Promise.resolve();
-        // Déplacée ou agrandie : elle reste là où on l'a posée dans le texte.
-        if (this.widget.cadre) {
-            this.widget.poser();
-            return Promise.resolve();
-        }
+    private poser(): void {
         const seule = this.seule;
-        return computePosition(seule?.reference ?? this.reference, this.dom, {
-            placement: 'right-start',
-            strategy: 'absolute',
-            middleware: [
-                // À 8 px du BORD de la barre, et descendue jusqu'au haut de la
-                // tête de chat : ancrer sur le bouton lui-même collerait la
-                // bulle au padding de la barre. Seule, elle se tient à 12 px du
-                // trait, sur son haut, comme la carte d'un outil.
-                offset(() => (seule ? { mainAxis: 12, crossAxis: 0 } : { mainAxis: 8, crossAxis: this.alignEl.offsetTop })),
-                flip({ padding: 8, fallbackPlacements: ['left-start'] }),
-                shift({ padding: 8 }),
-                eviter(this.evitement),
-                hide(),
-            ],
-        }).then(({ x, y, middlewareData }) => {
-            // La bulle a pu être fermée pendant le calcul.
-            if (!this._loaded) return;
-            this.dom.style.left = `${x}px`;
-            this.dom.style.top = `${y}px`;
-            // La barre est sortie de l'écran avec son passage : on masque la
-            // bulle sans la fermer, elle revient avec le texte.
-            this.dom.style.visibility = middlewareData.hide?.referenceHidden ? 'hidden' : 'visible';
+        this.fenetre.monter(seule?.cadre ?? null, (el) => {
+            const trait = this.repere.boiteTrait();
+            if (seule) return this.repere.aCote(el, { haut: trait?.top ?? 'centre', evites: [trait] });
+            const { dom, chatEl } = this.barre();
+            const barre = this.repere.boiteDe(dom);
+            const chat = this.repere.boiteDe(chatEl);
+            return this.repere.aCote(el, { ref: barre, haut: chat?.top ?? 'centre', ecart: 8, evites: [trait, barre] });
         });
     }
 

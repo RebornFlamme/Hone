@@ -1,14 +1,10 @@
-import {
-    autoUpdate, computePosition, flip, hide, offset, shift,
-    type VirtualElement,
-} from '@floating-ui/dom';
-import { Component, setIcon, type App } from 'fragment';
+import { Component, setIcon, type App, type WidgetHandle } from 'fragment';
 import { eclore, ressort, type Eclosion } from './eclosion';
-import { eviter, type Boite } from './eviter';
+import { Fenetre, type Cadre } from './fenetre';
+import type { Repere } from './repere';
 import { agir, resumerOral, type ContexteQuestion, type Outil } from './repondre';
 import { PiedSupprimer } from './supprimer';
 import type { Message } from './traces';
-import { Widget, type Cadre } from './widget';
 
 /** Les cinq outils : leur icône Lucide et leur nom, dans l'ordre de la barre. */
 export const OUTILS: Record<Outil, { icone: string; libelle: string }> = {
@@ -47,6 +43,10 @@ const AMORTISSEMENT = 48;
  *
  * Comme la barre et la bulle, elle ne se ferme QU'À LA CROIX de la carte.
  * Pendant l'attente, il n'y a rien à fermer : tout a fondu dans le rond.
+ *
+ * Le rond et la carte sont des widgets du cœur, ancrés au document à côté du
+ * trait (Repere) : ils défilent avec la note. La carte se déplace et
+ * s'agrandit (fenetre.ts), le rond ne bouge pas.
  */
 export class ActionAgent extends Component {
 
@@ -57,42 +57,34 @@ export class ActionAgent extends Component {
     private readonly titreEl: HTMLElement;
     private readonly corpsEl: HTMLElement;
     private readonly pied: PiedSupprimer;
-    /** Déplacer et agrandir la carte (widget.ts). Le rond, lui, ne bouge pas. */
-    private readonly widget: Widget;
+    /** La carte en widget du cœur (fenetre.ts). */
+    private readonly fenetre: Fenetre;
+    /** Le rond en widget du cœur, le temps que l'agent réfléchit. */
+    private rond: WidgetHandle | null = null;
 
     /** Le numéro du lancement en cours : une réponse d'un lancement fermé est ignorée. */
     private lancement = 0;
-    /**
-     * L'écart entre le haut du rond et le haut du passage, relevé quand la
-     * carte s'ouvre : la carte garde le haut du rond, dont elle sort, même
-     * une fois le rond retiré.
-     */
-    private decalageCarte = 0;
+    /** Le cadre de la carte, relevé juste avant son retrait : le calque le lit à la fermeture. */
+    private cadreFerme: Cadre | null = null;
     private animations: { annuler(): void }[] = [];
     /** Ce que montre la carte, lu par le calque à la fermeture. */
     private montre: Resultat | null = null;
 
     private readonly app: App;
-    private readonly parentEl: HTMLElement;
-    private readonly reference: VirtualElement;
+    private readonly repere: Repere;
     private readonly onFermer: () => void;
-    private readonly evitement: { obstacles: () => Boite[]; limites: () => Boite };
 
     constructor(
         app: App,
-        parentEl: HTMLElement,
-        reference: VirtualElement,
+        repere: Repere,
         onFermer: () => void,
-        evitement: { obstacles: () => Boite[]; limites: () => Boite },
         onSupprimer: () => void,
         onDiscuter: () => void,
     ) {
         super();
         this.app = app;
-        this.parentEl = parentEl;
-        this.reference = reference;
+        this.repere = repere;
         this.onFermer = onFermer;
-        this.evitement = evitement;
 
         // ── Le rond, pendant que l'agent réfléchit ──
         this.cercleEl = document.createElement('div');
@@ -133,7 +125,7 @@ export class ActionAgent extends Component {
         this.pied = new PiedSupprimer(app, onSupprimer, onDiscuter);
         this.carteEl.appendChild(this.pied.el);
 
-        this.widget = new Widget(this.carteEl, tete, () => reference.getBoundingClientRect());
+        this.fenetre = new Fenetre(this.carteEl, tete, repere);
 
         this.carteEl.addEventListener('keydown', (e) => e.stopPropagation());
     }
@@ -157,7 +149,7 @@ export class ActionAgent extends Component {
 
     /** Où la carte a été posée et à quelle taille, null si on n'y a pas touché. */
     cadre(): Cadre | null {
-        return this.widget.cadre ? { ...this.widget.cadre } : null;
+        return this.fenetre.estMontee() ? this.fenetre.cadre() : this.cadreFerme;
     }
 
     /**
@@ -200,12 +192,10 @@ export class ActionAgent extends Component {
         const estCourant = (): boolean => this._loaded && this.lancement === lancement;
 
         this.cercleEl.style.opacity = '0';
-        this.parentEl.appendChild(this.cercleEl);
         this.load();
-        void this.placer().then(() => {
-            if (!estCourant()) return;
-            this.animations.push(resorber(depuis, this.cercleEl));
-        });
+        // Le rond à la place de la barre : à côté du trait, centré sur lui.
+        this.rond = this.repere.monter(this.cercleEl, (el) => this.repere.aCote(el));
+        this.animations.push(resorber(depuis, this.cercleEl));
 
         reponse
             .then((texte) => {
@@ -227,21 +217,19 @@ export class ActionAgent extends Component {
      */
     montrer(outil: Outil, texte: string, depuis: HTMLElement, cadre: Cadre | null): void {
         this.preparer(OUTILS[outil]);
-        this.widget.reprendre(cadre);
         this.pied.montrer(true);
         this.pied.montrerDiscuter(true);
         this.montre = { type: 'outil', outil, texte };
         this.corpsEl.textContent = texte;
         this.lancement++;
-        const lancement = this.lancement;
-        this.decalageCarte = 0;
         this.carteEl.style.opacity = '0';
-        this.parentEl.appendChild(this.carteEl);
         this.load();
-        void this.placer().then(() => {
-            if (!this._loaded || this.lancement !== lancement) return;
-            this.animations.push(eclore(depuis, this.carteEl));
+        // Là où on l'avait laissée, sinon à côté du trait, sur son haut.
+        this.fenetre.monter(cadre, (el) => {
+            const trait = this.repere.boiteTrait();
+            return this.repere.aCote(el, { haut: trait?.top ?? 'centre', evites: [trait] });
         });
+        this.animations.push(eclore(depuis, this.carteEl));
     }
 
     fermer(): void {
@@ -258,19 +246,15 @@ export class ActionAgent extends Component {
         this.corpsEl.classList.remove('is-error');
         this.pied.montrer(false);
         this.pied.montrerDiscuter(false);
-        this.widget.oublier();
         this.montre = null;
-    }
-
-    onload(): void {
-        this.register(autoUpdate(this.reference, this.cercleEl, () => void this.placer()));
     }
 
     onunload(): void {
         for (const a of this.animations) a.annuler();
         this.animations = [];
-        this.cercleEl.remove();
-        this.carteEl.remove();
+        this.cadreFerme = this.fenetre.estMontee() ? this.fenetre.cadre() : null;
+        this.retirerRond();
+        this.fenetre.retirer();
         // Le rond et la carte sont réutilisés d'un lancement à l'autre : le
         // prochain rond doit renaître avec son arc qui tourne.
         this.cercleEl.classList.remove('is-fini');
@@ -279,34 +263,10 @@ export class ActionAgent extends Component {
         this.onFermer();
     }
 
-    /** Public, pour les mouvements que autoUpdate ne voit pas (voir agentLayer). */
-    placer(): Promise<void> {
-        if (!this._loaded) return Promise.resolve();
-        const poser = (el: HTMLElement, placement: 'right' | 'right-start'): Promise<void> =>
-            computePosition(this.reference, el, {
-                placement,
-                strategy: 'absolute',
-                middleware: [
-                    // Le rond à la place de la barre (même écart au passage) ; la
-                    // carte sur le haut du passage.
-                    offset({ mainAxis: 12, crossAxis: placement === 'right' ? 0 : this.decalageCarte }),
-                    flip({ padding: 8, fallbackPlacements: [placement === 'right' ? 'left' : 'left-start'] }),
-                    shift({ padding: 8 }),
-                    eviter(this.evitement),
-                    hide(),
-                ],
-            }).then(({ x, y, middlewareData }) => {
-                if (!this._loaded) return;
-                el.style.left = `${x}px`;
-                el.style.top = `${y}px`;
-                el.style.visibility = middlewareData.hide?.referenceHidden ? 'hidden' : 'visible';
-            });
-        const enCours = [];
-        if (this.cercleEl.isConnected) enCours.push(poser(this.cercleEl, 'right'));
-        // Déplacée ou agrandie : elle reste là où on l'a posée dans le texte.
-        if (this.carteEl.isConnected && this.widget.cadre) this.widget.poser();
-        else if (this.carteEl.isConnected) enCours.push(poser(this.carteEl, 'right-start'));
-        return Promise.all(enCours).then(() => undefined);
+    private retirerRond(): void {
+        this.rond?.remove();
+        this.rond = null;
+        this.cercleEl.remove();
     }
 
     /** Le rond s'ouvre en carte : la goutte du chat (eclosion.ts), depuis le rond. */
@@ -315,19 +275,20 @@ export class ActionAgent extends Component {
         this.corpsEl.classList.toggle('is-error', erreur);
         // Une erreur n'est pas une réponse dont on discute.
         this.pied.montrerDiscuter(!erreur);
-        this.decalageCarte = this.cercleEl.getBoundingClientRect().top - this.reference.getBoundingClientRect().top;
         this.carteEl.style.opacity = '0';
-        this.parentEl.appendChild(this.carteEl);
         const lancement = this.lancement;
-        void this.placer().then(() => {
-            if (!this._loaded || this.lancement !== lancement) return;
-            // Le rond s'arrête de tourner : la réponse est là.
-            this.cercleEl.classList.add('is-fini');
-            const eclosion: Eclosion = eclore(this.cercleEl, this.carteEl);
-            this.animations.push(eclosion);
-            void eclosion.fini.then(() => {
-                if (this._loaded && this.lancement === lancement) this.cercleEl.remove();
-            });
+        // La carte garde le haut du rond, dont elle sort.
+        const rond = this.repere.boiteDe(this.cercleEl);
+        this.fenetre.monter(null, (el) => this.repere.aCote(el, {
+            haut: rond?.top ?? 'centre',
+            evites: [this.repere.boiteTrait()],
+        }));
+        // Le rond s'arrête de tourner : la réponse est là.
+        this.cercleEl.classList.add('is-fini');
+        const eclosion: Eclosion = eclore(this.cercleEl, this.carteEl);
+        this.animations.push(eclosion);
+        void eclosion.fini.then(() => {
+            if (this._loaded && this.lancement === lancement) this.retirerRond();
         });
     }
 }
