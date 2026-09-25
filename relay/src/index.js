@@ -1,5 +1,8 @@
+import {DurableObject} from "cloudflare:workers"; 
+
+
 export default {
-    async fetch(request){
+    async fetch(request, env){
         const url = new URL(request.url);
 
         const match = url.pathname.match(/^\/session\/([^/]+)$/);
@@ -16,6 +19,21 @@ export default {
             return new Response("Paramètres invalides", {status : 400});
         }
             
-        return new Response(`OK : session ${id}, role  ${role} `);
+        const identifiant = env.SESSIONS.idFromName(id);
+        const stub = env.SESSIONS.get(identifiant);
+        return stub.fetch(request)
+        
     },
 };
+
+
+export class Session extends DurableObject{
+    count = 0; // provisoire : pour vérifier qu'on retombe sur le même salon
+
+    async fetch(request){
+        this.count++;
+        return new Response(`Bienvenue dans le salon, visite n°${this.count}`)
+    }
+}
+
+
