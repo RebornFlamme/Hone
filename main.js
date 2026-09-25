@@ -393,9 +393,118 @@ function decaler(a, a0, d) {
   return a;
 }
 
+// src/lienAgent.ts
+var DELAI_MAX = 9e4;
+var nodeRequire = () => window.require;
+var ErreurAgent = class extends Error {
+};
+var LienAgent = class {
+  constructor(racineVault, dossierPlugin) {
+    this.racineVault = racineVault;
+    this.dossierPlugin = dossierPlugin;
+  }
+  racineVault;
+  dossierPlugin;
+  enfant = null;
+  prochainId = 1;
+  enAttente = /* @__PURE__ */ new Map();
+  /**
+   * Le plugin a un .env : on regarde qu'il EXISTE, sans le lire. Le contenu
+   * (la clé) n'est lu que par le processus de l'agent.
+   */
+  configure() {
+    const fs = nodeRequire()("fs");
+    const path = nodeRequire()("path");
+    return fs.existsSync(path.join(this.dossierPlugin, ".env"));
+  }
+  demander(demande, morceau) {
+    const enfant = this.lancer();
+    const id = this.prochainId++;
+    return new Promise((resoudre, rejeter) => {
+      const minuterie = setTimeout(() => {
+        this.enAttente.delete(id);
+        rejeter(new ErreurAgent("L'agent met trop de temps \xE0 r\xE9pondre."));
+      }, DELAI_MAX);
+      this.enAttente.set(id, { resoudre, rejeter, morceau, minuterie });
+      const requete = { id, demande };
+      enfant.send(requete);
+    });
+  }
+  /** Au déchargement du plugin : le processus s'arrête, les demandes en cours échouent. */
+  arreter() {
+    this.enfant?.kill();
+    this.enfant = null;
+    this.toutRejeter("L'agent a \xE9t\xE9 arr\xEAt\xE9.");
+  }
+  lancer() {
+    if (this.enfant && this.enfant.connected) return this.enfant;
+    const { fork } = nodeRequire()("child_process");
+    const path = nodeRequire()("path");
+    const enfant = fork(path.join(this.dossierPlugin, "agent-serveur.js"), [
+      `--vault=${this.racineVault}`,
+      `--plugin=${this.dossierPlugin}`
+    ], {
+      execPath: process.execPath,
+      env: { ...process.env, ELECTRON_RUN_AS_NODE: "1" },
+      stdio: ["ignore", "inherit", "inherit", "ipc"]
+    });
+    enfant.on("message", (m) => this.recevoir(m));
+    enfant.on("exit", () => {
+      if (this.enfant === enfant) this.enfant = null;
+      this.toutRejeter("L'agent s'est arr\xEAt\xE9, r\xE9essaie.");
+    });
+    this.enfant = enfant;
+    return enfant;
+  }
+  recevoir(retour) {
+    const attente = this.enAttente.get(retour.id);
+    if (!attente) return;
+    if (retour.type === "morceau") {
+      attente.morceau?.(retour.texte);
+      return;
+    }
+    clearTimeout(attente.minuterie);
+    this.enAttente.delete(retour.id);
+    if (retour.type === "fin") attente.resoudre(retour.sortie);
+    else attente.rejeter(new ErreurAgent(retour.message));
+  }
+  toutRejeter(message) {
+    for (const [id, attente] of this.enAttente) {
+      clearTimeout(attente.minuterie);
+      attente.rejeter(new ErreurAgent(message));
+      this.enAttente.delete(id);
+    }
+  }
+};
+var lien = null;
+function ouvrirLien(racineVault, dossierPlugin) {
+  lien = new LienAgent(racineVault, dossierPlugin);
+  const courant = lien;
+  return () => {
+    courant.arreter();
+    if (lien === courant) lien = null;
+  };
+}
+function lienCourant() {
+  return lien;
+}
+
 // src/repondre.ts
+function lienActif() {
+  if (process.env.AGENT_FACTICE === "1") return null;
+  const lien2 = lienCourant();
+  return lien2?.configure() ? lien2 : null;
+}
+function passage(contexte) {
+  return { texte: contexte.texte, chemin: contexte.chemin };
+}
 var LATENCE_FACTICE = 700;
 async function repondre(question, contexte, historique = []) {
+  const lien2 = lienActif();
+  if (lien2) {
+    const sortie = await lien2.demander({ agent: "chat", passage: passage(contexte), question, historique });
+    return sortie.texte;
+  }
   await new Promise((r) => setTimeout(r, LATENCE_FACTICE));
   const extrait = contexte.texte.length > 60 ? `${contexte.texte.slice(0, 60)}\u2026` : contexte.texte;
   const suite = historique.length > 0 ? ` (apr\xE8s ${historique.length} message${historique.length > 1 ? "s" : ""})` : "";
@@ -410,6 +519,16 @@ var FACTICE = {
   resumer: "R\xE9sum\xE9 factice : le back donnera les points cl\xE9s de la s\xE9lection."
 };
 async function agir(outil, contexte) {
+  const lien2 = lienActif();
+  if (lien2) {
+    const demande = outil === "aider" ? { agent: outil, passage: passage(contexte), indices: [] } : { agent: outil, passage: passage(contexte) };
+    const sortie = await lien2.demander(demande);
+    if (outil === "visualiser") {
+      const v = sortie;
+      return v.possible ? "Visuel re\xE7u : son dessin dans la carte arrive \xE0 l'\xE9tape suivante." : v.raison ?? "Ce passage ne se pr\xEAte pas \xE0 un visuel.";
+    }
+    return sortie.texte;
+  }
   await new Promise((r) => setTimeout(r, LATENCE_OUTIL));
   const extrait = contexte.texte.length > 60 ? `${contexte.texte.slice(0, 60)}\u2026` : contexte.texte;
   return `${FACTICE[outil]} Passage : \xAB ${extrait} \xBB.`;
@@ -426,6 +545,11 @@ async function parler(audio, contexte, historique = []) {
 }
 var LATENCE_BILAN = 1200;
 async function resumerOral(historique, contexte) {
+  const lien2 = lienActif();
+  if (lien2) {
+    const sortie = await lien2.demander({ agent: "bilan", passage: passage(contexte), historique });
+    return sortie.texte;
+  }
   await new Promise((r) => setTimeout(r, LATENCE_BILAN));
   const tours = historique.filter((m) => m.auteur === "moi").length;
   const extrait = contexte.texte.length > 40 ? `${contexte.texte.slice(0, 40)}\u2026` : contexte.texte;
@@ -2424,6 +2548,11 @@ var AgentPlugin = class extends import_fragment9.Plugin {
       console.error(`[agent] d\xE9sactiv\xE9 : le c\u0153ur n'exporte pas encore ${manquants.join(", ")} (core/api.ts).`);
       return;
     }
+    const racine = racineDuVault();
+    if (racine) {
+      const path = window.require("path");
+      this.register(ouvrirLien(racine, path.join(racine, ".fragment", "plugins", this.manifest.id)));
+    }
     this.registerLayer({
       id: "agent",
       name: "Agent",
@@ -2437,3 +2566,7 @@ var AgentPlugin = class extends import_fragment9.Plugin {
     });
   }
 };
+function racineDuVault() {
+  const arg = process.argv.find((a) => a.startsWith("--vault-root="));
+  return arg ? arg.slice("--vault-root=".length) : null;
+}

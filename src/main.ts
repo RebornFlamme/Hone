@@ -1,6 +1,7 @@
 import * as fragment from 'fragment';
 import { Plugin } from 'fragment';
 import { createAgentLayer } from './agentLayer';
+import { ouvrirLien } from './lienAgent';
 
 // ═══════════════════════════════════════════════════════════════════════════
 //  Le plugin « Agent » : une barre qui s'ouvre sur un trait d'annotation, et
@@ -26,6 +27,12 @@ export default class AgentPlugin extends Plugin {
             console.error(`[agent] désactivé : le cœur n'exporte pas encore ${manquants.join(', ')} (core/api.ts).`);
             return;
         }
+        // Le processus de l'agent (lienAgent.ts) : lancé au premier appel, arrêté au déchargement.
+        const racine = racineDuVault();
+        if (racine) {
+            const path = (window as unknown as { require(id: string): typeof import('node:path') }).require('path');
+            this.register(ouvrirLien(racine, path.join(racine, '.fragment', 'plugins', this.manifest.id)));
+        }
         this.registerLayer({
             id: 'agent',
             name: 'Agent',
@@ -38,4 +45,10 @@ export default class AgentPlugin extends Plugin {
             create: (ctx) => createAgentLayer(ctx),
         });
     }
+}
+
+/** La racine du vault, que main.ts du cœur passe à la fenêtre (src/shared/racineDuCoffre.ts). */
+function racineDuVault(): string | null {
+    const arg = process.argv.find((a) => a.startsWith('--vault-root='));
+    return arg ? arg.slice('--vault-root='.length) : null;
 }
