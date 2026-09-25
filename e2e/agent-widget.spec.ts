@@ -442,3 +442,37 @@ test('un cadre gardé plus grand que le panneau revient plafonné à sa taille',
     expect(b.width).toBeLessThanOrEqual(pane.width - 16 + 0.5);
     expect(b.height).toBeLessThanOrEqual(pane.height - 16 + 0.5);
 });
+
+test('emporté vers le haut par le défilement, le widget passe sous la barre d\'onglets', async () => {
+    const { page } = h;
+    await surligner(page, 'Ligne 12 :', 'Révolution française');
+    await carteOuverte(page);
+    // Posée dans le texte : elle défile avec lui.
+    await deplacerCarte(page, 0, -1);
+    const pane = await page.evaluate(() => {
+        const w = window as unknown as { app: any };
+        const r = w.app.workspace.getLeavesOfType('markdown')[0].view.contentEl.getBoundingClientRect();
+        return { top: r.top };
+    });
+    const l = await ligne(page, 'Ligne 12 :');
+    await page.mouse.move(l.x + 40, l.y + 200);
+    for (let i = 0; i < 20; i++) {
+        await page.mouse.wheel(0, 60);
+        await page.waitForTimeout(80);
+        const c = (await carte(page).boundingBox())!;
+        if (c.y < pane.top - 20) break;
+    }
+    const c = (await carte(page).boundingBox())!;
+    expect(c.y).toBeLessThan(pane.top - 10);
+    // Au-dessus du pane, sur la largeur de la carte : c'est la barre qu'on voit.
+    const dessus = await page.evaluate(({ x, y }) => {
+        const el = document.elementFromPoint(x, y);
+        return el?.closest('.agent-action-carte') ? 'carte' : 'autre';
+    }, { x: c.x + c.width / 2, y: pane.top - 5 });
+    expect(dessus).toBe('autre');
+    // Et la partie encore dans le pane reste visible.
+    const dedans = await page.evaluate(({ x, y }) =>
+        document.elementFromPoint(x, y)?.closest('.agent-action-carte') ? 'carte' : 'autre',
+    { x: c.x + c.width / 2, y: c.y + c.height - 10 });
+    expect(dedans).toBe('carte');
+});

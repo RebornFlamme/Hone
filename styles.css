@@ -639,3 +639,11 @@
     min-height: 0;
     max-height: none;
 }
+
+/* Le pane de la note rogne ce qui en dépasse. Sans ça, un widget posé dans le
+   texte, emporté vers le haut par le défilement, passait PAR-DESSUS la barre
+   d'onglets et l'en-tête de la vue (le pane du cœur ne rogne rien). `clip` et
+   pas `hidden` : aucun conteneur de défilement de plus. */
+.agent-pane {
+    overflow: clip;
+}

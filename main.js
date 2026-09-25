@@ -2890,6 +2890,7 @@ function createAgentLayer(ctx) {
   };
   const editor = surface;
   const paneEl = ctx.view.contentEl;
+  paneEl.classList.add("agent-pane");
   const chemin = () => ctx.view.file?.path ?? "";
   let zone = null;
   const origine = () => {
@@ -3112,6 +3113,7 @@ function createAgentLayer(ctx) {
   return () => {
     paneEl.removeEventListener("pointerdown", bloquer, true);
     paneEl.classList.remove("agent-occupe");
+    paneEl.classList.remove("agent-pane");
     observateur.disconnect();
     refFichier.off();
     offGeometrie();

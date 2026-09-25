@@ -28,6 +28,9 @@ export function createAgentLayer(ctx: LayerContext): () => void {
     const editor: Editor = surface;
 
     const paneEl = (ctx.view as ItemView).contentEl;
+    // Le pane rogne ce qui en dépasse : un widget emporté vers le haut par le
+    // texte passe SOUS la barre d'onglets, comme le texte (styles.css).
+    paneEl.classList.add('agent-pane');
     const chemin = (): string => (ctx.view as FileView).file?.path ?? '';
 
     /** Le passage visé : posé par un trait, remappé à l'édition, effacé à la croix. */
@@ -354,6 +357,7 @@ export function createAgentLayer(ctx: LayerContext): () => void {
     return () => {
         paneEl.removeEventListener('pointerdown', bloquer, true);
         paneEl.classList.remove('agent-occupe');
+        paneEl.classList.remove('agent-pane');
         observateur.disconnect();
         refFichier.off();
         offGeometrie();
