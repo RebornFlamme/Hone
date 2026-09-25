@@ -39,18 +39,88 @@ export class Session extends DurableObject{
     async fetch(request){
         const [client, server] = Object.values(new WebSocketPair());
         const role = new URL(request.url).searchParams.get("role");
+        if (role === "phone"){
+            if (this.open("desktop").length ===0){
+                return reject(client, server, 4404, "Session inconnue ou fermée");
+            }
+            if (this.open("phone").length >0){
+                return reject(client, server, 4409, "Un téléphone est déjà connecté");
+            }
+        }
+
+        if (role === "desktop"){
+            for (const pc of this.open("desktop")){
+                pc.close(4000, "Remplacé par une nouvelle connexion" );
+            }
+            
+        }
+
         this.ctx.acceptWebSocket(server, [role]);
+
+        const other = OTHER[role];
+        server.send(peerMessage(other, this.open(other).length>0));
+
+        this.broadcast(other, peerMessage(role, true));
         return new Response(null, {status : 101, webSocket: client })
     }
 
-    webSocketMessage(ws, message){
-        const role = this.ctx.getTags(ws)[0];
-        const destinataires = this.ctx.getWebSockets(OTHER[role]);
-        for (const dest of destinataires){
-            dest.send(message)
+    open(role){
+        return this.ctx.getWebSockets(role).filter((ws) => ws.readyState === WebSocket.OPEN);
+    }
 
+    broadcast(role, message) {
+        for (const ws of this.open(role)) {
+            ws.send(message);
+        }
+
+    }
+    onleave(ws){
+        try{
+            ws.close(1000, "Au revoir");
+        }
+
+        catch{ };
+
+        const role = this.ctx.getTags(ws)[0];
+        const stillThere = this.open(role).some((s) => s !== ws);
+        if (!stillThere){
+
+            this.broadcast(OTHER[role], peerMessage(role, false));
         }
     }
+
+
+    webSocketMessage(ws, message){
+        const role = this.ctx.getTags(ws)[0];
+        
+        this.broadcast(OTHER[role], message);
+    
+        }
+    
+
+    webSocketClose(ws){
+        this.onleave(ws);
+    }
+
+    webSocketError(ws){
+        this.onleave(ws);
+    }
+    
+
+    
+}
+
+    
+
+
+
+function reject(client, server, code, reason){
+    server.accept();
+    server.close(code, reason)
+    return new Response(null, { status: 101, webSocket: client});
 }
 
 
+function peerMessage(role, connected){
+    return JSON.stringify({ type: "peer", role: role, connected: connected });
+}
