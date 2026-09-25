@@ -1,17 +1,16 @@
-
-
-
-const photo = document.getElementById("input_photo")
+const video = document.getElementById("camera");
+const cancelCamera = document.getElementById("cancel-camera");
+const photo = document.getElementById("input_photo");
 const preview = document.getElementById("preview");
 const welcomeScreen = document.getElementById("screen-welcome");
-const errorMessage = document.getElementById("error-message")
+const errorMessage = document.getElementById("error-message");
 let url = null;
-let stream = null; // flux caméra en cours
+let stream = null; 
 const retry = document.getElementById("error-retry");
-const authorization = document.getElementById("allow-camera")
+const authorization = document.getElementById("allow-camera");
 
-photo.addEventListener("change", (event) => {
-    const file = photo.files[0]
+photo.addEventListener("change", () => {
+    const file = photo.files[0];
 
     if (file==undefined) {
         return;
@@ -26,16 +25,16 @@ photo.addEventListener("change", (event) => {
 
     const MAX_SIZE = 20 * 1024 * 1024;
     if (file.size> MAX_SIZE){
-        showError("Image trop lourde(20 Mo maximum");
+        showError("Image trop lourde(20 Mo maximum)");
         return;
     }
 
     if (url != null){
         URL.revokeObjectURL(url);
     }
-    const photo_url = URL.createObjectURL(file);
-    url = photo_url;
-    preview.src = photo_url;
+    url = URL.createObjectURL(file);
+
+    preview.src = url;
     welcomeScreen.classList.add("has-photo")    
 });
 
@@ -74,10 +73,12 @@ authorization.addEventListener("click", async () => {
 
     try {
         stream = await navigator.mediaDevices.getUserMedia({
-            video: { facingMode: { ideal: "environment" } }, 
+            video: { facingMode: { ideal: "environment" } },
+ 
             audio: false,
         });
-        console.log("Caméra OK :", stream);
+        video.srcObject = stream;
+        welcomeScreen.classList.add("has-camera");
     } catch (err) {
         console.error(err.name, err.message);
         if (err.name === "NotAllowedError") {
@@ -98,7 +99,13 @@ function stopCamera() {
     if (stream == null) return;
     stream.getTracks().forEach((track) => track.stop());
     stream = null;
+    welcomeScreen.classList.remove("has-camera");
 }
+
+cancelCamera.addEventListener("click", () => {
+    stopCamera();
+    
+})
 
 document.addEventListener("visibilitychange", () => {
     if (document.hidden) stopCamera();
