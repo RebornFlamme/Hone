@@ -2521,7 +2521,9 @@ var VoixAgent = class extends import_fragment3.Component {
         this.lecture = source;
         source.start();
         this.onde.suivre(this.lecteur(analyseur));
-      }).catch(() => this.direTexte(reponse.texte, fin));
+      }).catch(() => {
+        if (this._loaded && this.parole === parole && this.etat === "repond") this.direTexte(reponse.texte, fin);
+      });
       return;
     }
     this.direTexte(reponse.texte, fin);

@@ -858,7 +858,9 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-    .agent-onde-trait {
+    /* Ni ressort des traits, ni rebond du survol (posé en style par VoixAgent). */
+    .agent-onde-trait,
+    .agent-voix {
         transition: none !important;
     }
 }

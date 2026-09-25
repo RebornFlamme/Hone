@@ -362,7 +362,10 @@ export class VoixAgent extends Component {
                     source.start();
                     this.onde.suivre(this.lecteur(analyseur));
                 })
-                .catch(() => this.direTexte(reponse.texte, fin));
+                // Illisible : la synthèse du système, si cette réponse est encore la bonne.
+                .catch(() => {
+                    if (this._loaded && this.parole === parole && this.etat === 'repond') this.direTexte(reponse.texte, fin);
+                });
             return;
         }
         this.direTexte(reponse.texte, fin);
