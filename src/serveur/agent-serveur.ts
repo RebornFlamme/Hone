@@ -123,7 +123,14 @@ function envoyer(retour: Retour): void {
 
 const MAX_TURNS = { chat: 10, outil: 6 };
 
+/** L'interrupteur du .env : à 1, aucune requête ne part vers OpenAI, quoi qu'il arrive. */
+const bloque = process.env.AGENT_BLOQUE?.trim() === '1';
+
 async function traiter({ id, demande }: Requete): Promise<void> {
+    if (bloque) {
+        envoyer({ id, type: 'erreur', message: 'Agent en pause : aucun appel à OpenAI (AGENT_BLOQUE=1 dans le .env du plugin).' });
+        return;
+    }
     if (!agents) {
         envoyer({ id, type: 'erreur', message: 'Clé API manquante : ajoute OPENAI_API_KEY dans le .env du plugin.' });
         return;
