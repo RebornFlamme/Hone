@@ -1,6 +1,7 @@
 const video = document.getElementById("camera");
 const cancelCamera = document.getElementById("cancel-camera");
 const shutter = document.getElementById("shutter");
+const retake = document.getElementById("retake");
 const photo = document.getElementById("input_photo");
 const preview = document.getElementById("preview");
 const welcomeScreen = document.getElementById("screen-welcome");
@@ -42,6 +43,7 @@ function showPhoto(image){
 
     preview.src = url;
     welcomeScreen.classList.add("has-photo");
+    stopCamera(); // si la photo vient de la caméra, ou d'un import depuis le viseur
 }
 
 
@@ -74,8 +76,10 @@ retry.addEventListener("click", () => {
     showScreen("screen-welcome");
 })
 
-authorization.addEventListener("click", async () => {
-    authorization.disabled = true; 
+// Ouvre la caméra en live. `button` = le bouton cliqué, désactivé pendant la demande
+async function startCamera(button) {
+    if (stream != null) return; // déjà ouverte
+    button.disabled = true;
 
     try {
         stream = await navigator.mediaDevices.getUserMedia({
@@ -88,6 +92,7 @@ authorization.addEventListener("click", async () => {
             audio: false,
         });
         video.srcObject = stream;
+        welcomeScreen.classList.remove("has-photo"); // si on vient de « Changer de photo »
         welcomeScreen.classList.add("has-camera");
     } catch (err) {
         console.error(err.name, err.message);
@@ -101,9 +106,12 @@ authorization.addEventListener("click", async () => {
             showError("Impossible d'ouvrir la caméra.");
         }
     } finally {
-        authorization.disabled = false;
+        button.disabled = false;
     }
-})
+}
+
+authorization.addEventListener("click", () => startCamera(authorization));
+retake.addEventListener("click", () => startCamera(retake));
 
 function stopCamera() {
     if (stream == null) return;
@@ -134,7 +142,6 @@ shutter.addEventListener("click", () => {
             return;
         }
         showPhoto(blob);
-        stopCamera();
     }, "image/jpeg", 0.92);
 })
 
