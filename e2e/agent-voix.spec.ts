@@ -1,0 +1,325 @@
+import { test, expect, _electron, type ElectronApplication, type Page } from '@playwright/test';
+import { cp, mkdtemp, mkdir, writeFile } from 'fs/promises';
+import os from 'os';
+import path from 'path';
+
+/**
+ * La discussion orale (VoixAgent.ts) : le micro de la barre, sous la tête de
+ * chat, fait fondre la barre dans un rond qui s'étire en pilule. L'onde suit
+ * le micro, ■ envoie le tour, l'agent répond à voix haute, la croix rend le
+ * micro.
+ *
+ * Pas de vrai micro : `getUserMedia` est remplacé dans la page par un
+ * oscillateur à 220 Hz dont on règle le volume, et la synthèse vocale par un
+ * faux qui « parle » 1,5 s (assez pour que l'attente de Playwright voie l'état).
+ *
+ * Se lance comme agent-widget.spec.ts, dont le harnais est recopié :
+ *     npx playwright test e2e/agent-voix.spec.ts --workers=1
+ */
+
+const NB_LIGNES = 200;
+const CONTENU = Array.from({ length: NB_LIGNES }, (_, i) =>
+    i === 0
+        ? '# Document de test pour l\'agent'
+        : `Ligne ${i} : la Révolution française commence en 1789.`,
+).join('\n');
+
+interface Harnais {
+    electronApp: ElectronApplication;
+    page: Page;
+}
+
+async function fenetreApp(electronApp: ElectronApplication): Promise<Page> {
+    const fin = Date.now() + 30_000;
+    while (Date.now() < fin) {
+        for (const w of electronApp.windows()) {
+            if (w.url().includes('localhost:5123')) return w;
+        }
+        await new Promise((r) => setTimeout(r, 200));
+    }
+    throw new Error('fenêtre app introuvable');
+}
+
+async function lancer(): Promise<Harnais> {
+    const base = await mkdtemp(path.join(os.tmpdir(), 'prom-agent-'));
+    const vault = path.join(base, 'vault');
+    const userData = path.join(base, 'userdata');
+
+    await mkdir(vault, { recursive: true });
+    await mkdir(userData, { recursive: true });
+    await writeFile(path.join(vault, 'note.md'), CONTENU, 'utf8');
+    await cp('/Users/philippinebiojout/Documents/IA/fragment-notes/.fragment/plugins/agent', path.join(vault, '.fragment/plugins/agent'), { recursive: true, filter: (src) => !src.includes('node_modules') });
+    await writeFile(path.join(userData, 'config.json'), JSON.stringify({ vaultRoot: vault }), 'utf8');
+
+    const electronApp = await _electron.launch({
+        args: ['.', `--user-data-dir=${userData}`],
+        env: { ...process.env, NODE_ENV: 'development' } as Record<string, string>,
+    });
+
+    const page = await fenetreApp(electronApp);
+    await page.waitForFunction(
+        () => {
+            const w = window as unknown as { app?: any };
+            const leaves = w.app?.workspace?.getLeavesOfType?.('markdown') ?? [];
+            return leaves.length > 0 && !!leaves[0].view?.editor;
+        },
+        undefined,
+        { timeout: 30_000 },
+    );
+    // Assez large pour la colonne, la barre et le chat côte à côte.
+    await page.setViewportSize({ width: 1400, height: 800 });
+
+    // Le calque d'annotation est désactivé d'office : on l'arme.
+    await page.evaluate(() => {
+        const w = window as unknown as { app: any };
+        w.app.workspace.getLeavesOfType('markdown')[0].view.toggleLayer('annotation');
+    });
+    await page.waitForSelector('.annotation-surface', { state: 'attached' });
+    return { electronApp, page };
+}
+
+/** Le rectangle CLIENT de la première ligne rendue qui contient `texte`. */
+async function ligne(page: Page, texte: string) {
+    const loc = page.locator('.cm-line', { hasText: texte }).first();
+    const box = await loc.boundingBox();
+    if (!box) throw new Error(`ligne introuvable : ${texte}`);
+    return box;
+}
+
+/**
+ * La boîte CLIENT d'un morceau de texte d'une ligne, mesurée par un Range DOM :
+ * c'est ce qu'on veut entourer ou surligner, au pixel près.
+ */
+async function boiteDuMot(page: Page, ligneTexte: string, mot: string) {
+    return page.evaluate(({ ligneTexte, mot }) => {
+        const el = [...document.querySelectorAll('.cm-line')].find((l) => l.textContent?.includes(ligneTexte))!;
+        const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+        for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+            const i = n.textContent!.indexOf(mot);
+            if (i < 0) continue;
+            const r = document.createRange();
+            r.setStart(n, i);
+            r.setEnd(n, i + mot.length);
+            const b = r.getBoundingClientRect();
+            return { x: b.left, y: b.top, width: b.width, height: b.height };
+        }
+        throw new Error(`mot introuvable : ${mot}`);
+    }, { ligneTexte, mot });
+}
+
+async function armer(page: Page, outil: 'Crayon' | 'Surligneur'): Promise<void> {
+    const item = page.locator(`.toolbar-item[aria-label="${outil}"]`);
+    // Cliquer un outil déjà armé le désarme : on ne clique que s'il ne l'est pas.
+    if (!(await item.evaluate((el) => el.classList.contains('is-active')))) await item.click();
+}
+
+async function trace(page: Page, points: { x: number; y: number }[]): Promise<void> {
+    await page.mouse.move(points[0].x, points[0].y);
+    await page.mouse.down();
+    for (const p of points.slice(1)) await page.mouse.move(p.x, p.y);
+    await page.mouse.up();
+}
+
+/** Surligne un mot d'une ligne, d'un bord à l'autre. */
+async function surligner(page: Page, ligneTexte: string, mot: string): Promise<void> {
+    await armer(page, 'Surligneur');
+    const b = await boiteDuMot(page, ligneTexte, mot);
+    const y = b.y + b.height / 2;
+    const pts = Array.from({ length: 8 }, (_, i) => ({ x: b.x + 2 + ((b.width - 4) * i) / 7, y }));
+    await trace(page, pts);
+}
+
+/** Entoure un mot d'une ellipse au crayon. */
+async function entourer(page: Page, ligneTexte: string, mot: string): Promise<void> {
+    await armer(page, 'Crayon');
+    const b = await boiteDuMot(page, ligneTexte, mot);
+    const cx = b.x + b.width / 2;
+    const cy = b.y + b.height / 2;
+    const rx = b.width / 2 + 5;
+    const ry = b.height / 2 + 6;
+    const pts = [];
+    for (let a = 0; a <= Math.PI * 2 - 0.25; a += 0.2) pts.push({ x: cx + rx * Math.cos(a), y: cy + ry * Math.sin(a) });
+    await trace(page, pts);
+}
+
+const barre = (page: Page) => page.locator('.agent-barre');
+const voix = (page: Page) => page.locator('.agent-voix');
+const micro = (page: Page) => barre(page).locator('[aria-label="Parler à l\'agent"]');
+const stop = (page: Page) => voix(page).locator('.agent-voix-stop');
+
+const nbTraits = (page: Page) => page.evaluate(() => {
+    const w = window as unknown as { app: any };
+    return w.app.plugins.plugins.get('annotation').source.strokes('note.md').length as number;
+});
+
+/** Le faux micro et la fausse voix ; `refuser` fait échouer getUserMedia. */
+async function simulerAudio(page: Page, refuser = false): Promise<void> {
+    await page.evaluate((refuser) => {
+        const w = window as unknown as { __voix: any };
+        const etat = { pistes: [] as MediaStreamTrack[], gains: [] as GainNode[], niveau: 0, dits: [] as string[] };
+        w.__voix = etat;
+        navigator.mediaDevices.getUserMedia = async () => {
+            if (refuser) throw new DOMException('refusé', 'NotAllowedError');
+            const ctx = new AudioContext();
+            const osc = ctx.createOscillator();
+            osc.frequency.value = 220;
+            const gain = ctx.createGain();
+            gain.gain.value = etat.niveau;
+            const sortie = ctx.createMediaStreamDestination();
+            osc.connect(gain).connect(sortie);
+            osc.start();
+            etat.gains.push(gain);
+            etat.pistes.push(...sortie.stream.getTracks());
+            return sortie.stream;
+        };
+        speechSynthesis.speak = (u: SpeechSynthesisUtterance) => {
+            etat.dits.push(u.text);
+            u.dispatchEvent(new Event('start'));
+            setTimeout(() => u.dispatchEvent(new Event('end')), 1500);
+        };
+    }, refuser);
+}
+
+async function volume(page: Page, niveau: number): Promise<void> {
+    await page.evaluate((niveau) => {
+        const v = (window as unknown as { __voix: any }).__voix;
+        v.niveau = niveau;
+        for (const g of v.gains) g.gain.value = niveau;
+    }, niveau);
+}
+
+/** Les cinq échelles verticales de l'onde, lues dans la transformation calculée. */
+const echelles = (page: Page) => voix(page).locator('.agent-onde-trait').evaluateAll((els) =>
+    els.map((el) => new DOMMatrixReadOnly(getComputedStyle(el).transform).d));
+
+/** Surligne un passage, puis ouvre la discussion orale par le micro de la barre. */
+async function ouvrirVoix(page: Page): Promise<void> {
+    await surligner(page, 'Ligne 3 :', 'Révolution');
+    await expect(barre(page)).toBeVisible();
+    await micro(page).click();
+    await expect(voix(page)).toBeVisible();
+}
+
+/** Attend la fin de l'étirement : plus aucune animation sur la pilule. */
+async function attendrePosee(page: Page): Promise<void> {
+    await expect(voix(page)).toHaveClass(/est-posee/, { timeout: 4_000 });
+}
+
+let h: Harnais;
+
+test.beforeEach(async () => {
+    h = await lancer();
+});
+
+test.afterEach(async () => {
+    await h.electronApp.close();
+});
+
+test('le micro est dans la barre courte, juste sous la tête de chat', async () => {
+    const { page } = h;
+    await surligner(page, 'Ligne 3 :', 'Révolution');
+    await expect(barre(page)).toBeVisible();
+    const libelles = await barre(page).locator('button:visible').evaluateAll((els) => els.map((el) => el.getAttribute('aria-label')));
+    expect(libelles).toEqual(['Fermer', "Discuter avec l'agent", "Parler à l'agent", 'Définir', 'Visualiser', "Plus d'outils"]);
+});
+
+test('le micro fait fondre la barre dans un rond, qui s\'étire en pilule de 196 px', async () => {
+    const { page } = h;
+    await simulerAudio(page);
+    await surligner(page, 'Ligne 3 :', 'Révolution');
+    await expect(barre(page)).toBeVisible();
+    await micro(page).click();
+    await expect(barre(page)).toHaveCount(0);
+    await expect(voix(page)).toHaveAttribute('data-etat', 'rond');
+    await expect(voix(page)).toHaveAttribute('data-etat', 'ecoute', { timeout: 4_000 });
+    await attendrePosee(page);
+    // Pointeur hors de la pilule : pas d'élargissement de survol.
+    await page.mouse.move(5, 5);
+    await expect.poll(async () => (await voix(page).boundingBox())!.width, { timeout: 4_000 }).toBeCloseTo(196, 0);
+    expect((await voix(page).boundingBox())!.height).toBeCloseTo(48, 0);
+
+    // À droite du passage, à sa hauteur.
+    const mot = await boiteDuMot(page, 'Ligne 3 :', 'Révolution');
+    const b = (await voix(page).boundingBox())!;
+    expect(b.x).toBeGreaterThanOrEqual(mot.x + mot.width - 1);
+    expect(b.y).toBeLessThan(mot.y + mot.height);
+    expect(b.y + b.height).toBeGreaterThan(mot.y);
+});
+
+test('l\'onde reste à plat sans son et se lève quand on parle', async () => {
+    const { page } = h;
+    await simulerAudio(page);
+    await ouvrirVoix(page);
+    await attendrePosee(page);
+    await expect(voix(page).locator('.agent-onde-trait')).toHaveCount(5);
+    // 4 px sur 14 : le minimum de Skiper25.
+    await expect.poll(async () => Math.max(...await echelles(page)), { timeout: 3_000 }).toBeLessThan(0.3);
+
+    await volume(page, 1);
+    // 220 Hz tombe dans la deuxième bande (175 à 380 Hz).
+    await expect.poll(async () => (await echelles(page))[1], { timeout: 3_000 }).toBeGreaterThan(0.6);
+
+    await volume(page, 0);
+    await expect.poll(async () => Math.max(...await echelles(page)), { timeout: 3_000 }).toBeLessThan(0.3);
+});
+
+test('■ envoie le tour : l\'agent réfléchit, répond à voix haute, puis la pilule écoute de nouveau', async () => {
+    const { page } = h;
+    await simulerAudio(page);
+    await ouvrirVoix(page);
+    await expect(voix(page)).toHaveAttribute('data-etat', 'ecoute', { timeout: 4_000 });
+    await volume(page, 1);
+    await page.waitForTimeout(300);
+    await stop(page).click();
+    await expect(voix(page)).toHaveAttribute('data-etat', 'reflechit');
+    await expect(stop(page)).toBeDisabled();
+    await expect(voix(page)).toHaveAttribute('data-etat', 'repond', { timeout: 4_000 });
+    const dits = await page.evaluate(() => (window as unknown as { __voix: any }).__voix.dits as string[]);
+    expect(dits).toHaveLength(1);
+    expect(dits[0]).toContain('numéro 1');
+    expect(dits[0]).toContain('ton enregistrement');
+    await expect(voix(page)).toHaveAttribute('data-etat', 'ecoute', { timeout: 4_000 });
+
+    // Deuxième tour : l'historique a gardé le premier.
+    await stop(page).click();
+    await expect(voix(page)).toHaveAttribute('data-etat', 'repond', { timeout: 4_000 });
+    const dits2 = await page.evaluate(() => (window as unknown as { __voix: any }).__voix.dits as string[]);
+    expect(dits2[1]).toContain('numéro 2');
+});
+
+test('la croix ferme la pilule et rend le micro', async () => {
+    const { page } = h;
+    await simulerAudio(page);
+    await ouvrirVoix(page);
+    await attendrePosee(page);
+    await voix(page).locator('[aria-label="Fermer"]').click();
+    await expect(voix(page)).toHaveCount(0);
+    await expect(page.locator('.agent-zone')).toHaveCount(0);
+    const etats = await page.evaluate(() =>
+        ((window as unknown as { __voix: any }).__voix.pistes as MediaStreamTrack[]).map((p) => p.readyState));
+    expect(etats.length).toBeGreaterThan(0);
+    expect(etats.every((e) => e === 'ended')).toBe(true);
+});
+
+test('pilule ouverte : un trait à côté ne pose rien', async () => {
+    const { page } = h;
+    await simulerAudio(page);
+    await ouvrirVoix(page);
+    await attendrePosee(page);
+    const avant = await nbTraits(page);
+    await surligner(page, 'Ligne 8 :', 'commence');
+    expect(await nbTraits(page)).toBe(avant);
+    await expect(barre(page)).toHaveCount(0);
+    await expect(voix(page)).toBeVisible();
+});
+
+test('micro refusé : la pilule le dit, et sa croix la ferme', async () => {
+    const { page } = h;
+    await simulerAudio(page, true);
+    await ouvrirVoix(page);
+    await expect(voix(page)).toHaveAttribute('data-etat', 'refuse', { timeout: 4_000 });
+    await expect(voix(page).locator('.agent-voix-message')).toHaveText('Micro refusé');
+    await expect(stop(page)).toBeHidden();
+    await voix(page).locator('[aria-label="Fermer"]').click();
+    await expect(voix(page)).toHaveCount(0);
+});

@@ -2,6 +2,7 @@ import type { VirtualElement } from '@floating-ui/dom';
 import type { AnnotationPlugin, Editor, FileView, ItemView, LayerContext, Marker, Rect, Stroke } from 'fragment';
 import { hasText } from './coeur';
 import { ActionAgent } from './ActionAgent';
+import { VoixAgent } from './VoixAgent';
 import { BarreAgent } from './BarreAgent';
 import { BulleAgent } from './BulleAgent';
 import type { ContexteQuestion } from './repondre';
@@ -149,6 +150,15 @@ export function createAgentLayer(ctx: LayerContext): () => void {
             action.lancer(outil, zone, depuis);
             majOccupe();
         },
+        // Le micro : pareil, la barre fond dans le rond du micro.
+        onVoix: () => {
+            if (!zone) return;
+            const depuis = barre.dom.getBoundingClientRect();
+            bulle.fermer();
+            barre.cacher();
+            voix.lancer(zone, depuis);
+            majOccupe();
+        },
     }, {
         obstacles: () => [...barresAnnotation(), ...passage()],
         limites,
@@ -187,6 +197,16 @@ export function createAgentLayer(ctx: LayerContext): () => void {
         limites,
     }, () => supprimer(), () => discuter());
 
+    // La croix de la pilule ferme tout. Pas encore de trace dans la marge.
+    const voix = new VoixAgent(ctx.app, paneEl, reference, () => {
+        zone = null;
+        majOccupe();
+        editor.requestUpdate();
+    }, {
+        obstacles: () => [...barresAnnotation(), ...passage()],
+        limites,
+    });
+
     // ── La carte devient un chat ───────────────────────────────────────────
     //
     // La tête de chat du pied d'une carte : la carte se ferme, et le chat sort
@@ -222,6 +242,7 @@ export function createAgentLayer(ctx: LayerContext): () => void {
     // sans la barre et ses outils.
 
     const rouvrir = (t: Trace, depuis: HTMLElement): void => {
+        voix.fermer();
         action.fermer();
         barre.fermer();
         // Un chat rouvert seul n'a pas de barre pour le fermer avec elle.
@@ -251,6 +272,7 @@ export function createAgentLayer(ctx: LayerContext): () => void {
         try {
             bulle.fermer();
             action.fermer();
+            voix.fermer();
             barre.fermer();
         } finally {
             suppression = false;
@@ -268,7 +290,7 @@ export function createAgentLayer(ctx: LayerContext): () => void {
     const surScroll = (): void => carnet.placer();
     editor.scrollEl.addEventListener('scroll', surScroll, { passive: true });
 
-    // ── Chat ou carte ouverts : l'annotation se tait ───────────────────────
+    // ── Chat, carte ou pilule ouverts : l'annotation se tait ──────────────
     //
     // Tant qu'on discute d'un passage ou qu'un outil y répond, un clic à côté
     // ne pose ni point ni trait : on est dans la conversation, pas dans la
@@ -277,7 +299,7 @@ export function createAgentLayer(ctx: LayerContext): () => void {
     // l'agent, et l'outil choisi est intact à la fermeture. La barre
     // d'annotation reste utilisable, seule la surface est visée.
 
-    const occupe = (): boolean => bulle.estOuverte() || action.estOuverte();
+    const occupe = (): boolean => bulle.estOuverte() || action.estOuverte() || voix.estOuverte();
     const majOccupe = (): void => { paneEl.classList.toggle('agent-occupe', occupe()); };
     const bloquer = (e: PointerEvent): void => {
         if (!occupe() || !(e.target instanceof Element) || !e.target.closest('.annotation-surface')) return;
@@ -389,6 +411,7 @@ export function createAgentLayer(ctx: LayerContext): () => void {
         barre.placer();
         void bulle.placer();
         void action.placer();
+        void voix.placer();
         carnet.placer();
     };
 
@@ -441,6 +464,7 @@ export function createAgentLayer(ctx: LayerContext): () => void {
             barre.fermer();
             bulle.fermer();
             action.fermer();
+            voix.fermer();
         }
         // Les icônes de la marge sont celles du document affiché.
         carnet.placer();
@@ -463,6 +487,7 @@ export function createAgentLayer(ctx: LayerContext): () => void {
         barre.fermer();
         bulle.fermer();
         action.fermer();
+        voix.fermer();
         // Après les fermetures : elles rangent encore leur trace.
         editor.scrollEl.removeEventListener('scroll', surScroll);
         carnet.detruire();

@@ -652,3 +652,213 @@
 .agent-pane {
     overflow: clip;
 }
+
+/* ── La discussion orale (VoixAgent.ts, onde.ts) ────────────────────────────
+   Un rond de 48 px (celui des outils) qui s'étire en pilule de 196 px
+   (Skiper3), et s'élargit de 16 px au survol (Skiper25). La largeur est
+   animée en JS pendant l'étirement ; `est-posee` n'arrive qu'après, avec la
+   transition du survol, pour que les deux ne se superposent pas. */
+
+.agent-voix {
+    position: absolute;
+    top: 0;
+    left: 0;
+    z-index: 940;   /* la place de la barre */
+    width: 48px;
+    height: 48px;
+    box-sizing: border-box;
+    border-radius: 24px;
+    overflow: hidden;
+    background: var(--background-secondary);
+    border: 1px solid var(--tab-outline-color);
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+    color: var(--text-normal);
+}
+
+.agent-voix:not([data-etat="rond"]) {
+    width: 196px;
+}
+
+.agent-voix.est-posee:hover {
+    width: 212px;
+}
+
+/* Le micro du rond, centré ; il s'efface quand le rond s'étire. */
+.agent-voix-micro {
+    position: absolute;
+    top: 50%;
+    left: 23px;
+    display: inline-flex;
+    translate: -50% -50%;
+    transition: opacity 120ms ease-out;
+}
+
+.agent-voix-micro svg {
+    width: 22px;
+    height: 22px;
+}
+
+.agent-voix:not([data-etat="rond"]) .agent-voix-micro {
+    opacity: 0;
+}
+
+/* Croix à gauche, onde au milieu, point et stop à droite ; le stop est
+   concentrique au bout de la pilule (8 px de chaque côté). */
+.agent-voix-contenu {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 0 7px 0 14px;
+}
+
+.agent-voix[data-etat="rond"] .agent-voix-contenu {
+    visibility: hidden;
+}
+
+.agent-voix-fermer {
+    display: inline-flex;
+    flex: none;
+    align-items: center;
+    justify-content: center;
+    width: 20px;
+    height: 20px;
+    padding: 0;
+    border: none;
+    border-radius: 6px;
+    background: transparent;
+    color: var(--text-muted);
+    cursor: pointer;
+}
+
+.agent-voix-fermer svg {
+    width: 14px;
+    height: 14px;
+}
+
+.agent-voix-fermer:hover {
+    color: var(--text-normal);
+}
+
+.agent-onde {
+    display: flex;
+    flex: none;
+    align-items: center;
+    gap: 4px;
+    height: 18px;
+    margin: 0 auto;
+}
+
+.agent-onde-trait {
+    width: 2px;
+    height: 14px;
+    border-radius: 1px;
+    background: currentColor;
+}
+
+/* L'agent parle : l'onde prend la couleur d'accent. */
+.agent-voix[data-etat="repond"] .agent-onde {
+    color: var(--color-accent);
+}
+
+/* L'agent réfléchit : les traits à plat respirent. */
+.agent-voix[data-etat="reflechit"] .agent-onde {
+    animation: agent-action-respire 1.6s ease-in-out infinite;
+}
+
+.agent-voix-message {
+    display: none;
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    color: var(--text-muted);
+    font-size: 12px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.agent-voix[data-etat="refuse"] .agent-voix-message,
+.agent-voix-message:not(:empty) {
+    display: block;
+}
+
+.agent-voix-message:not(:empty) ~ .agent-voix-point {
+    display: none;
+}
+
+.agent-voix[data-etat="refuse"] .agent-onde,
+.agent-voix[data-etat="refuse"] .agent-voix-point,
+.agent-voix[data-etat="refuse"] .agent-voix-stop,
+.agent-voix-contenu:has(.agent-voix-message:not(:empty)) .agent-onde {
+    display: none;
+}
+
+.agent-voix-point {
+    flex: none;
+    width: 4px;
+    height: 4px;
+    border-radius: 50%;
+    background: var(--text-muted);
+    opacity: 0.6;
+}
+
+.agent-voix-stop {
+    position: relative;
+    display: inline-flex;
+    flex: none;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    padding: 0;
+    border: 1px solid var(--tab-outline-color);
+    border-radius: 50%;
+    background: transparent;
+    color: var(--text-normal);
+    cursor: pointer;
+}
+
+.agent-voix-stop:hover:not(:disabled) {
+    background: rgba(128, 128, 128, 0.18);
+}
+
+.agent-voix-stop:disabled {
+    cursor: default;
+}
+
+.agent-voix-stop:focus-visible,
+.agent-voix-fermer:focus-visible {
+    outline: 2px solid var(--color-accent);
+    outline-offset: 1px;
+}
+
+/* ■ : 10 px, à peine arrondi. */
+.agent-voix-carre {
+    width: 10px;
+    height: 10px;
+    border-radius: 2px;
+    background: currentColor;
+}
+
+/* L'arc des outils, resserré sur le stop : il reste dans la pilule. */
+.agent-voix-stop .agent-action-arc {
+    display: none;
+    inset: -3px;
+    width: calc(100% + 6px);
+    height: calc(100% + 6px);
+}
+
+.agent-voix[data-etat="reflechit"] .agent-voix-stop .agent-action-arc {
+    display: block;
+}
+
+.agent-voix[data-etat="reflechit"] .agent-voix-carre {
+    display: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .agent-onde-trait {
+        transition: none !important;
+    }
+}

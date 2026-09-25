@@ -16,13 +16,15 @@ export interface ActionsBarre {
     onFermer(): void;
     /** Un outil : la barre va se résorber dans le rond de l'outil (ActionAgent). */
     onOutil(outil: Outil): void;
+    /** Le micro : la barre va se résorber dans le rond du micro (VoixAgent). */
+    onVoix(): void;
 }
 
 /**
  * La barre verticale qui apparaît à droite d'un passage surligné ou entouré.
  *
- * De haut en bas : une croix, la tête de chat, les deux outils favoris
- * (définir, visualiser) et « … ». Un clic sur « … » allonge la barre vers le
+ * De haut en bas : une croix, la tête de chat, le micro (la discussion
+ * orale, VoixAgent), les deux outils favoris (définir, visualiser) et « … ». Un clic sur « … » allonge la barre vers le
  * bas (rallonge.ts) et montre les autres outils (aider, traduire, résumer) ;
  * le « … » disparaît alors, et la barre reste longue. Les outils n'ont encore
  * Un clic sur un outil le lance : la barre se retire, remplacée par le
@@ -85,6 +87,9 @@ export class BarreAgent extends Component {
 
         this.chatEl = this.bouton(app, 'cat', "Discuter avec l'agent");
         this.chatEl.addEventListener('click', () => this.actions.onChat());
+
+        const microEl = this.bouton(app, 'mic', "Parler à l'agent", 'agent-barre-outil');
+        microEl.addEventListener('click', () => this.actions.onVoix());
 
         // Les outils : les deux favoris, puis ceux que « … » fait apparaître.
         const outil = (id: Outil): HTMLButtonElement => {

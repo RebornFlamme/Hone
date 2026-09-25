@@ -23,7 +23,7 @@ __export(main_exports, {
   default: () => AgentPlugin
 });
 module.exports = __toCommonJS(main_exports);
-var import_fragment6 = require("fragment");
+var import_fragment7 = require("fragment");
 
 // src/coeur.ts
 function hasText(surface) {
@@ -1654,6 +1654,15 @@ async function agir(outil, contexte) {
   const extrait = contexte.texte.length > 60 ? `${contexte.texte.slice(0, 60)}\u2026` : contexte.texte;
   return `${FACTICE[outil]} Passage : \xAB ${extrait} \xBB.`;
 }
+var LATENCE_ORALE = 1e3;
+async function parler(audio, contexte, historique = []) {
+  await new Promise((r) => setTimeout(r, LATENCE_ORALE));
+  const tour = historique.filter((m) => m.auteur === "moi").length + 1;
+  const extrait = contexte.texte.length > 40 ? `${contexte.texte.slice(0, 40)}\u2026` : contexte.texte;
+  return {
+    texte: `R\xE9ponse orale factice num\xE9ro ${tour}. J'ai bien re\xE7u ${audio.size > 0 ? "ton enregistrement" : "un enregistrement vide"}, sur le passage \xAB ${extrait} \xBB. Le back n'est pas encore branch\xE9.`
+  };
+}
 
 // src/supprimer.ts
 var import_fragment = require("fragment");
@@ -2134,7 +2143,7 @@ function resorber(depuis, cercle) {
   const parent = cercle.parentElement;
   if (window.matchMedia("(prefers-reduced-motion: reduce)").matches || !parent) {
     montrer();
-    return { annuler: () => {
+    return { fini: Promise.resolve(), annuler: () => {
     } };
   }
   const rc = cercle.getBoundingClientRect();
@@ -2152,7 +2161,7 @@ function resorber(depuis, cercle) {
     { duration: duree, easing, fill: "both" }
   );
   let annule = false;
-  anim.finished.then(() => {
+  const fini = anim.finished.then(() => {
     if (annule) return;
     forme.remove();
     montrer();
@@ -2163,6 +2172,7 @@ function resorber(depuis, cercle) {
   }).catch(() => {
   });
   return {
+    fini,
     annuler: () => {
       annule = true;
       anim.cancel();
@@ -2172,15 +2182,453 @@ function resorber(depuis, cercle) {
   };
 }
 
-// src/BarreAgent.ts
+// src/VoixAgent.ts
 var import_fragment3 = require("fragment");
 
-// src/rallonge.ts
+// src/onde.ts
+var TRAITS = 5;
+var HAUTEUR = 14;
+var HAUTEUR_MIN2 = 4;
+var PLANCHER = 0.2;
+var REPOS = 0.1;
+var PERIODE = 100;
+var HZ_BAS = 80;
+var HZ_HAUT = 4e3;
+var PLEIN = 160;
+function niveaux(spectre, hzParCase) {
+  const ratio = Math.pow(HZ_HAUT / HZ_BAS, 1 / TRAITS);
+  return Array.from({ length: TRAITS }, (_, i) => {
+    const debut = Math.floor(HZ_BAS * Math.pow(ratio, i) / hzParCase);
+    const fin = Math.max(debut + 1, Math.floor(HZ_BAS * Math.pow(ratio, i + 1) / hzParCase));
+    let somme = 0;
+    let n = 0;
+    for (let k = debut; k < fin && k < spectre.length; k++) {
+      somme += spectre[k];
+      n++;
+    }
+    const moyenne = n > 0 ? somme / n : 0;
+    return PLANCHER + (1 - PLANCHER) * Math.min(1, moyenne / PLEIN);
+  });
+}
+function auHasard() {
+  return Array.from({ length: TRAITS }, () => Math.random() * (1 - PLANCHER) + PLANCHER);
+}
+var transition = null;
+var Onde = class {
+  el;
+  traits;
+  minuterie = 0;
+  constructor() {
+    this.el = document.createElement("div");
+    this.el.classList.add("agent-onde");
+    this.el.setAttribute("aria-hidden", "true");
+    if (!transition) {
+      const { easing, duree } = ressort(300, 10);
+      transition = `transform ${duree}ms ${easing}`;
+    }
+    this.traits = Array.from({ length: TRAITS }, () => {
+      const trait = this.el.appendChild(document.createElement("span"));
+      trait.classList.add("agent-onde-trait");
+      trait.style.transition = transition ?? "";
+      return trait;
+    });
+    this.repos();
+  }
+  /** Relit `lire` toutes les 100 ms et pose les traits à ces niveaux. */
+  suivre(lire) {
+    this.arreter();
+    const poser = () => this.poser(lire());
+    poser();
+    this.minuterie = window.setInterval(poser, PERIODE);
+  }
+  /** Les traits retombent à plat. */
+  repos() {
+    this.arreter();
+    this.poser(Array(TRAITS).fill(REPOS));
+  }
+  detruire() {
+    this.arreter();
+    this.el.remove();
+  }
+  arreter() {
+    window.clearInterval(this.minuterie);
+    this.minuterie = 0;
+  }
+  poser(niveaux2) {
+    this.traits.forEach((trait, i) => {
+      const hauteur = Math.max(HAUTEUR_MIN2, (niveaux2[i] ?? REPOS) * HAUTEUR);
+      trait.style.transform = `scaleY(${hauteur / HAUTEUR})`;
+    });
+  }
+};
+
+// src/VoixAgent.ts
 var RAIDEUR3 = 520;
 var AMORTISSEMENT3 = 38;
+var RETARD_CONTENU = 250;
+var APPARITION = 220;
+var RAIDEUR_SURVOL = (2 * Math.PI) ** 2;
+var AMORTISSEMENT_SURVOL = 2 * (1 - 0.6) * Math.sqrt(RAIDEUR_SURVOL);
+var MS_PAR_CARACTERE = 90;
+var LISSAGE = 0.4;
+var VoixAgent = class extends import_fragment3.Component {
+  el;
+  contenuEl;
+  stopEl;
+  messageEl;
+  onde = new Onde();
+  /** Le numéro du lancement en cours : ce qui arrive d'un lancement fermé est ignoré. */
+  lancement = 0;
+  /** Le numéro de la réponse en cours : la fin d'une voix coupée ne relance rien. */
+  parole = 0;
+  etat = "rond";
+  animations = [];
+  zone = null;
+  historique = [];
+  minuterie = 0;
+  // Le micro, ouvert du premier tour à la croix.
+  flux = null;
+  audio = null;
+  analyseur = null;
+  enregistreur = null;
+  morceaux = [];
+  /** La voix de l'agent, quand le back en renvoie une. */
+  lecture = null;
+  parentEl;
+  reference;
+  onFermer;
+  evitement;
+  constructor(app, parentEl, reference, onFermer, evitement) {
+    super();
+    this.parentEl = parentEl;
+    this.reference = reference;
+    this.onFermer = onFermer;
+    this.evitement = evitement;
+    this.el = document.createElement("div");
+    this.el.classList.add("agent-voix");
+    this.el.setAttribute("role", "group");
+    this.el.setAttribute("aria-label", "Discussion orale");
+    const microEl = this.el.appendChild(document.createElement("span"));
+    microEl.classList.add("agent-voix-micro");
+    (0, import_fragment3.setIcon)(app, microEl, "mic");
+    this.contenuEl = this.el.appendChild(document.createElement("div"));
+    this.contenuEl.classList.add("agent-voix-contenu");
+    const fermerEl = this.contenuEl.appendChild(document.createElement("button"));
+    fermerEl.type = "button";
+    fermerEl.classList.add("agent-voix-fermer");
+    fermerEl.setAttribute("aria-label", "Fermer");
+    fermerEl.title = "Fermer";
+    (0, import_fragment3.setIcon)(app, fermerEl, "x");
+    fermerEl.addEventListener("click", () => this.fermer());
+    this.contenuEl.appendChild(this.onde.el);
+    this.messageEl = this.contenuEl.appendChild(document.createElement("span"));
+    this.messageEl.classList.add("agent-voix-message");
+    this.messageEl.setAttribute("role", "status");
+    const pointEl = this.contenuEl.appendChild(document.createElement("span"));
+    pointEl.classList.add("agent-voix-point");
+    this.stopEl = this.contenuEl.appendChild(document.createElement("button"));
+    this.stopEl.type = "button";
+    this.stopEl.classList.add("agent-voix-stop");
+    this.stopEl.appendChild(document.createElement("span")).classList.add("agent-voix-carre");
+    this.stopEl.insertAdjacentHTML(
+      "beforeend",
+      '<svg class="agent-action-arc" viewBox="0 0 60 60" aria-hidden="true"><circle cx="30" cy="30" r="28" pathLength="100"/></svg>'
+    );
+    this.stopEl.addEventListener("click", () => this.surStop());
+    this.el.addEventListener("keydown", (e) => e.stopPropagation());
+    this.poserEtat("rond");
+  }
+  estOuverte() {
+    return this._loaded;
+  }
+  /**
+   * Ouvre la discussion sur `zone`. `depuis` est la boîte CLIENT de la
+   * barre, juste avant qu'elle ne soit retirée : le rond en sort.
+   */
+  lancer(zone, depuis) {
+    this.lancement++;
+    const lancement = this.lancement;
+    const estCourant = () => this._loaded && this.lancement === lancement;
+    this.zone = { ...zone };
+    this.historique = [];
+    this.poserEtat("rond");
+    this.el.style.opacity = "0";
+    this.parentEl.appendChild(this.el);
+    this.load();
+    const micro = this.ouvrirMicro(estCourant);
+    void this.placer().then(async () => {
+      if (!estCourant()) return;
+      const resorption = resorber(depuis, this.el);
+      this.animations.push(resorption);
+      await resorption.fini;
+      const ok = await micro;
+      if (estCourant()) this.etirer(ok);
+    });
+  }
+  fermer() {
+    this.unload();
+  }
+  onload() {
+    this.register(autoUpdate(this.reference, this.el, () => void this.placer()));
+  }
+  onunload() {
+    this.lancement++;
+    for (const a of this.animations) a.annuler();
+    this.animations = [];
+    this.couperVoix();
+    this.onde.repos();
+    if (this.enregistreur && this.enregistreur.state !== "inactive") this.enregistreur.stop();
+    for (const piste of this.flux?.getTracks() ?? []) piste.stop();
+    void this.audio?.close();
+    this.flux = null;
+    this.audio = null;
+    this.analyseur = null;
+    this.enregistreur = null;
+    this.morceaux = [];
+    this.zone = null;
+    this.el.remove();
+    this.el.style.opacity = "";
+    this.el.style.transition = "";
+    this.el.classList.remove("est-posee");
+    this.poserEtat("rond");
+    this.onFermer();
+  }
+  /** Public, pour les mouvements que autoUpdate ne voit pas (voir agentLayer). */
+  placer() {
+    if (!this._loaded) return Promise.resolve();
+    return computePosition2(this.reference, this.el, {
+      placement: "right",
+      strategy: "absolute",
+      middleware: [
+        // La place de la barre, le même écart au passage que le rond des outils.
+        offset2({ mainAxis: 12 }),
+        flip2({ padding: 8, fallbackPlacements: ["left"] }),
+        shift2({ padding: 8 }),
+        eviter(this.evitement),
+        hide2()
+      ]
+    }).then(({ x, y, middlewareData }) => {
+      if (!this._loaded) return;
+      this.el.style.left = `${x}px`;
+      this.el.style.top = `${y}px`;
+      this.el.style.visibility = middlewareData.hide?.referenceHidden ? "hidden" : "visible";
+    });
+  }
+  // ── Le micro ────────────────────────────────────────────────────────────
+  /** Vrai si le micro est ouvert. Refusé, absent ou lancement fermé : faux. */
+  async ouvrirMicro(estCourant) {
+    let flux;
+    try {
+      flux = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } });
+    } catch {
+      return false;
+    }
+    if (!estCourant()) {
+      for (const piste of flux.getTracks()) piste.stop();
+      return false;
+    }
+    this.flux = flux;
+    this.audio = new AudioContext();
+    this.analyseur = this.audio.createAnalyser();
+    this.analyseur.fftSize = 1024;
+    this.audio.createMediaStreamSource(flux).connect(this.analyseur);
+    this.enregistreur = new MediaRecorder(flux);
+    this.enregistreur.addEventListener("dataavailable", (e) => {
+      if (e.data.size > 0) this.morceaux.push(e.data);
+    });
+    return true;
+  }
+  /** Les niveaux de l'onde, lus dans le spectre de `analyseur`. */
+  lecteur(analyseur) {
+    const spectre = new Uint8Array(analyseur.frequencyBinCount);
+    const hzParCase = analyseur.context.sampleRate / analyseur.fftSize;
+    analyseur.smoothingTimeConstant = LISSAGE;
+    return () => {
+      analyseur.getByteFrequencyData(spectre);
+      return niveaux(spectre, hzParCase);
+    };
+  }
+  // ── Les tours de parole ─────────────────────────────────────────────────
+  ecouter() {
+    if (!this.enregistreur || !this.analyseur) return;
+    this.poserEtat("ecoute");
+    this.morceaux = [];
+    if (this.enregistreur.state === "inactive") this.enregistreur.start();
+    void this.audio?.resume();
+    this.onde.suivre(this.lecteur(this.analyseur));
+  }
+  surStop() {
+    if (this.etat === "ecoute") void this.finirTour();
+    else if (this.etat === "repond") {
+      this.couperVoix();
+      this.ecouter();
+    }
+  }
+  /** ■ : le tour part à l'agent, qui répond à voix haute. */
+  async finirTour() {
+    const lancement = this.lancement;
+    const estCourant = () => this._loaded && this.lancement === lancement;
+    this.poserEtat("reflechit");
+    this.onde.repos();
+    const enregistrement = await this.arreterEnregistrement();
+    if (!estCourant() || !this.zone) return;
+    let reponse;
+    try {
+      reponse = await parler(enregistrement, this.zone, this.historique);
+    } catch (err) {
+      if (!estCourant()) return;
+      this.messageEl.textContent = `L'agent n'a pas pu r\xE9pondre : ${err instanceof Error ? err.message : String(err)}`;
+      this.ecouter();
+      return;
+    }
+    if (!estCourant()) return;
+    this.historique.push(
+      { auteur: "moi", texte: reponse.transcription ?? "(message vocal)" },
+      { auteur: "agent", texte: reponse.texte }
+    );
+    this.dire(reponse);
+  }
+  arreterEnregistrement() {
+    const enregistreur = this.enregistreur;
+    if (!enregistreur || enregistreur.state === "inactive") return Promise.resolve(new Blob(this.morceaux));
+    return new Promise((resoudre) => {
+      enregistreur.addEventListener("stop", () => {
+        resoudre(new Blob(this.morceaux, { type: enregistreur.mimeType }));
+      }, { once: true });
+      enregistreur.stop();
+    });
+  }
+  /** L'agent parle : sa vraie voix si le back en renvoie une, la synthèse du système sinon. */
+  dire(reponse) {
+    this.parole++;
+    const parole = this.parole;
+    const fin = () => {
+      if (this._loaded && this.parole === parole && this.etat === "repond") this.ecouter();
+    };
+    this.poserEtat("repond");
+    this.messageEl.textContent = "";
+    const audio = this.audio;
+    if (reponse.audio && audio) {
+      audio.decodeAudioData(reponse.audio.slice(0)).then((tampon) => {
+        if (this.parole !== parole || this.etat !== "repond") return;
+        const source = audio.createBufferSource();
+        source.buffer = tampon;
+        const analyseur = audio.createAnalyser();
+        analyseur.fftSize = 1024;
+        source.connect(analyseur);
+        analyseur.connect(audio.destination);
+        source.addEventListener("ended", fin);
+        this.lecture = source;
+        source.start();
+        this.onde.suivre(this.lecteur(analyseur));
+      }).catch(() => this.direTexte(reponse.texte, fin));
+      return;
+    }
+    this.direTexte(reponse.texte, fin);
+  }
+  /**
+   * La synthèse vocale du système : on n'entend pas sa sortie, l'onde
+   * tourne au hasard comme dans Skiper25.
+   */
+  direTexte(texte, fin) {
+    this.onde.suivre(auHasard);
+    this.minuterie = window.setTimeout(fin, Math.max(2e3, texte.length * MS_PAR_CARACTERE));
+    if (!("speechSynthesis" in window)) return;
+    const enonce = new SpeechSynthesisUtterance(texte);
+    enonce.lang = "fr-FR";
+    enonce.addEventListener("start", () => window.clearTimeout(this.minuterie));
+    enonce.addEventListener("end", fin);
+    enonce.addEventListener("error", fin);
+    window.speechSynthesis.cancel();
+    window.speechSynthesis.speak(enonce);
+  }
+  /** Fait taire l'agent, quelle que soit sa voix. */
+  couperVoix() {
+    this.parole++;
+    window.clearTimeout(this.minuterie);
+    if ("speechSynthesis" in window) window.speechSynthesis.cancel();
+    try {
+      this.lecture?.stop();
+    } catch {
+    }
+    this.lecture = null;
+  }
+  // ── L'aspect ────────────────────────────────────────────────────────────
+  poserEtat(etat) {
+    this.etat = etat;
+    this.el.dataset.etat = etat;
+    const libelles = {
+      ecoute: "Finir de parler",
+      reflechit: "L'agent r\xE9fl\xE9chit",
+      repond: "Couper la parole \xE0 l'agent"
+    };
+    const libelle = libelles[etat] ?? "";
+    this.stopEl.setAttribute("aria-label", libelle);
+    this.stopEl.title = libelle;
+    this.stopEl.disabled = etat !== "ecoute" && etat !== "repond";
+    if (etat === "refuse") this.messageEl.textContent = "Micro refus\xE9";
+    else if (etat === "rond") this.messageEl.textContent = "";
+  }
+  /**
+   * Le rond s'étire en pilule. La pilule prend sa taille finale et sa place
+   * (à droite du passage, ou à gauche si la droite est prise), puis on
+   * anime sa boîte depuis celle du rond : le bord côté passage ne bouge pas.
+   */
+  etirer(micro) {
+    const rond = this.el.getBoundingClientRect();
+    this.poserEtat(micro ? "ecoute" : "refuse");
+    if (micro) this.ecouter();
+    const lancement = this.lancement;
+    void this.placer().then(() => {
+      if (!this._loaded || this.lancement !== lancement) return;
+      const poser = () => {
+        this.el.classList.add("est-posee");
+        const { easing: easing2, duree: duree2 } = ressort(RAIDEUR_SURVOL, AMORTISSEMENT_SURVOL);
+        this.el.style.transition = `width ${duree2}ms ${easing2}`;
+      };
+      if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+        poser();
+        return;
+      }
+      const pilule = this.el.getBoundingClientRect();
+      const dx = parseFloat(this.el.style.left || "0") - pilule.left;
+      const dy = parseFloat(this.el.style.top || "0") - pilule.top;
+      const { easing, duree } = ressort(RAIDEUR3, AMORTISSEMENT3);
+      const etirement = this.el.animate(
+        [
+          { left: `${rond.left + dx}px`, top: `${rond.top + dy}px`, width: `${rond.width}px` },
+          { left: `${pilule.left + dx}px`, top: `${pilule.top + dy}px`, width: `${pilule.width}px` }
+        ],
+        { duration: duree, easing }
+      );
+      const contenu = this.contenuEl.animate(
+        [
+          { opacity: 0, filter: "blur(4px)", scale: "0.5" },
+          { opacity: 1, filter: "blur(0px)", scale: "1" }
+        ],
+        { duration: APPARITION, delay: RETARD_CONTENU, easing: "ease-out", fill: "backwards" }
+      );
+      this.animations.push({ annuler: () => {
+        etirement.cancel();
+        contenu.cancel();
+      } });
+      void etirement.finished.then(() => {
+        if (this._loaded && this.lancement === lancement) poser();
+      }).catch(() => {
+      });
+    });
+  }
+};
+
+// src/BarreAgent.ts
+var import_fragment4 = require("fragment");
+
+// src/rallonge.ts
+var RAIDEUR4 = 520;
+var AMORTISSEMENT4 = 38;
 var RETARD = 70;
 var CASCADE = 35;
-var APPARITION = 220;
+var APPARITION2 = 220;
 function rallonger(barre, plus, nouveaux) {
   const avant = barre.offsetHeight;
   plus.style.display = "none";
@@ -2190,7 +2638,7 @@ function rallonger(barre, plus, nouveaux) {
     return { fini: Promise.resolve(), annuler: () => {
     } };
   }
-  const { easing, duree } = ressort(RAIDEUR3, AMORTISSEMENT3);
+  const { easing, duree } = ressort(RAIDEUR4, AMORTISSEMENT4);
   barre.style.boxSizing = "border-box";
   barre.style.overflow = "hidden";
   const hauteur = barre.animate(
@@ -2202,7 +2650,7 @@ function rallonger(barre, plus, nouveaux) {
       { opacity: 0, scale: "0.5", filter: "blur(4px)" },
       { opacity: 1, scale: "1", filter: "blur(0px)" }
     ],
-    { duration: APPARITION, delay: RETARD + i * CASCADE, easing: "cubic-bezier(0.2, 0.8, 0.2, 1)", fill: "backwards" }
+    { duration: APPARITION2, delay: RETARD + i * CASCADE, easing: "cubic-bezier(0.2, 0.8, 0.2, 1)", fill: "backwards" }
   ));
   const animations = [hauteur, ...apparitions];
   let annule = false;
@@ -2226,7 +2674,7 @@ function rallonger(barre, plus, nouveaux) {
 }
 
 // src/BarreAgent.ts
-var BarreAgent = class extends import_fragment3.Component {
+var BarreAgent = class extends import_fragment4.Component {
   dom;
   /** Le bouton tête de chat : le chat s'aligne sur lui. */
   chatEl;
@@ -2263,6 +2711,8 @@ var BarreAgent = class extends import_fragment3.Component {
     fermerEl.addEventListener("click", () => this.fermer());
     this.chatEl = this.bouton(app, "cat", "Discuter avec l'agent");
     this.chatEl.addEventListener("click", () => this.actions.onChat());
+    const microEl = this.bouton(app, "mic", "Parler \xE0 l'agent", "agent-barre-outil");
+    microEl.addEventListener("click", () => this.actions.onVoix());
     const outil = (id) => {
       const el = this.bouton(app, OUTILS[id].icone, OUTILS[id].libelle, "agent-barre-outil");
       el.addEventListener("click", () => this.actions.onOutil(id));
@@ -2360,14 +2810,14 @@ var BarreAgent = class extends import_fragment3.Component {
     if (classe) el.classList.add(classe);
     el.setAttribute("aria-label", libelle);
     el.title = libelle;
-    if (icone) (0, import_fragment3.setIcon)(app, el, icone);
+    if (icone) (0, import_fragment4.setIcon)(app, el, icone);
     return el;
   }
 };
 
 // src/BulleAgent.ts
-var import_fragment4 = require("fragment");
-var BulleAgent = class extends import_fragment4.Component {
+var import_fragment5 = require("fragment");
+var BulleAgent = class extends import_fragment5.Component {
   /** La racine, montée dans le pane à l'ouverture, retirée à la fermeture. */
   dom;
   extraitEl;
@@ -2430,7 +2880,7 @@ var BulleAgent = class extends import_fragment4.Component {
     fermerEl.classList.add("agent-bulle-fermer");
     fermerEl.setAttribute("aria-label", "Fermer");
     fermerEl.title = "Fermer";
-    (0, import_fragment4.setIcon)(app, fermerEl, "x");
+    (0, import_fragment5.setIcon)(app, fermerEl, "x");
     fermerEl.addEventListener("click", () => this.fermer());
     this.filEl = this.dom.appendChild(document.createElement("div"));
     this.filEl.classList.add("agent-bulle-fil");
@@ -2458,7 +2908,7 @@ var BulleAgent = class extends import_fragment4.Component {
     this.envoyerEl.classList.add("agent-bulle-envoyer");
     this.envoyerEl.setAttribute("aria-label", "Envoyer");
     this.envoyerEl.title = "Envoyer";
-    (0, import_fragment4.setIcon)(app, this.envoyerEl, "arrow-up");
+    (0, import_fragment5.setIcon)(app, this.envoyerEl, "arrow-up");
     this.pied = new PiedSupprimer(app, onSupprimer);
     this.dom.appendChild(this.pied.el);
     this.widget = new Widget(this.dom, tete, () => trait.getBoundingClientRect());
@@ -2651,7 +3101,7 @@ var BulleAgent = class extends import_fragment4.Component {
 };
 
 // src/traces.ts
-var import_fragment5 = require("fragment");
+var import_fragment6 = require("fragment");
 var TAILLE = 24;
 var ECART2 = 6;
 var RETRAIT = 0;
@@ -2797,7 +3247,7 @@ var CarnetTraces = class {
     const extrait = t.zone.texte.replace(/\s+/g, " ").trim();
     el.setAttribute("aria-label", `${libelle} : ${extrait}`);
     el.title = `${libelle} : \xAB ${extrait.length > 60 ? `${extrait.slice(0, 60)}\u2026` : extrait} \xBB`;
-    (0, import_fragment5.setIcon)(this.app, el, outil ? OUTILS[outil].icone : "cat");
+    (0, import_fragment6.setIcon)(this.app, el, outil ? OUTILS[outil].icone : "cat");
     el.style.position = "absolute";
     el.style.pointerEvents = "auto";
     el.addEventListener("click", () => {
@@ -3014,6 +3464,15 @@ function createAgentLayer(ctx) {
       barre.cacher();
       action.lancer(outil, zone, depuis);
       majOccupe();
+    },
+    // Le micro : pareil, la barre fond dans le rond du micro.
+    onVoix: () => {
+      if (!zone) return;
+      const depuis = barre.dom.getBoundingClientRect();
+      bulle.fermer();
+      barre.cacher();
+      voix.lancer(zone, depuis);
+      majOccupe();
     }
   }, {
     obstacles: () => [...barresAnnotation(), ...passage()],
@@ -3044,6 +3503,14 @@ function createAgentLayer(ctx) {
     obstacles: () => [...barresAnnotation(), ...passage()],
     limites
   }, () => supprimer(), () => discuter());
+  const voix = new VoixAgent(ctx.app, paneEl, reference, () => {
+    zone = null;
+    majOccupe();
+    editor.requestUpdate();
+  }, {
+    obstacles: () => [...barresAnnotation(), ...passage()],
+    limites
+  });
   let enchainement = false;
   const discuter = () => {
     const resultat = action.resultat();
@@ -3069,6 +3536,7 @@ function createAgentLayer(ctx) {
     editor.requestUpdate();
   };
   const rouvrir = (t, depuis) => {
+    voix.fermer();
     action.fermer();
     barre.fermer();
     bulle.fermer();
@@ -3097,6 +3565,7 @@ function createAgentLayer(ctx) {
     try {
       bulle.fermer();
       action.fermer();
+      voix.fermer();
       barre.fermer();
     } finally {
       suppression = false;
@@ -3116,7 +3585,7 @@ function createAgentLayer(ctx) {
   );
   const surScroll = () => carnet.placer();
   editor.scrollEl.addEventListener("scroll", surScroll, { passive: true });
-  const occupe = () => bulle.estOuverte() || action.estOuverte();
+  const occupe = () => bulle.estOuverte() || action.estOuverte() || voix.estOuverte();
   const majOccupe = () => {
     paneEl.classList.toggle("agent-occupe", occupe());
   };
@@ -3194,6 +3663,7 @@ function createAgentLayer(ctx) {
     barre.placer();
     void bulle.placer();
     void action.placer();
+    void voix.placer();
     carnet.placer();
   };
   const offChange = editor.onChange((c) => {
@@ -3226,6 +3696,7 @@ function createAgentLayer(ctx) {
       barre.fermer();
       bulle.fermer();
       action.fermer();
+      voix.fermer();
     }
     carnet.placer();
   });
@@ -3246,6 +3717,7 @@ function createAgentLayer(ctx) {
     barre.fermer();
     bulle.fermer();
     action.fermer();
+    voix.fermer();
     editor.scrollEl.removeEventListener("scroll", surScroll);
     carnet.detruire();
   };
@@ -3271,7 +3743,7 @@ var MarqueZone = class _MarqueZone {
 };
 
 // src/main.ts
-var AgentPlugin = class extends import_fragment6.Plugin {
+var AgentPlugin = class extends import_fragment7.Plugin {
   onload() {
     this.registerLayer({
       id: "agent",

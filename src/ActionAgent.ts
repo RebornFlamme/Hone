@@ -295,13 +295,15 @@ export class ActionAgent extends Component {
  * La barre se résorbe en rond : une forme au fond et au filet de la barre
  * part de sa boîte et se pose sur le rond, avec le ressort vif. Le rond
  * apparaît alors, d'un coup (même teinte, l'échange ne se voit pas).
+ * Repris par le micro (VoixAgent), dont le rond s'étire ensuite en pilule :
+ * `fini` est résolue quand le rond est montré.
  */
-function resorber(depuis: DOMRect, cercle: HTMLElement): { annuler(): void } {
+export function resorber(depuis: DOMRect, cercle: HTMLElement): { fini: Promise<void>; annuler(): void } {
     const montrer = (): void => { cercle.style.opacity = ''; };
     const parent = cercle.parentElement;
     if (window.matchMedia('(prefers-reduced-motion: reduce)').matches || !parent) {
         montrer();
-        return { annuler: () => {} };
+        return { fini: Promise.resolve(), annuler: () => {} };
     }
 
     // Même translation client → repère du parent qu'eclosion.ts.
@@ -323,7 +325,7 @@ function resorber(depuis: DOMRect, cercle: HTMLElement): { annuler(): void } {
     );
 
     let annule = false;
-    anim.finished
+    const fini = anim.finished
         .then(() => {
             if (annule) return;
             forme.remove();
@@ -337,6 +339,7 @@ function resorber(depuis: DOMRect, cercle: HTMLElement): { annuler(): void } {
         .catch(() => {});
 
     return {
+        fini,
         annuler: () => {
             annule = true;
             anim.cancel();

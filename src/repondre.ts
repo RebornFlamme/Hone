@@ -56,3 +56,32 @@ export async function agir(outil: Outil, contexte: ContexteQuestion): Promise<st
     const extrait = contexte.texte.length > 60 ? `${contexte.texte.slice(0, 60)}…` : contexte.texte;
     return `${FACTICE[outil]} Passage : « ${extrait} ».`;
 }
+
+// ── La discussion orale ─────────────────────────────────────────────────────
+
+/** Ce que l'agent répond à voix haute. */
+export interface ReponseOrale {
+    /** Ce qu'il dit, en texte : lu par la synthèse vocale du système tant que `audio` manque. */
+    texte: string;
+    /** Sa voix, encodée (mp3, wav, ogg…), telle que le back la renvoie. */
+    audio?: ArrayBuffer;
+    /** Ce que le back a compris de l'enregistrement, gardé dans l'historique des tours. */
+    transcription?: string;
+}
+
+/** Le délai simulé d'une réponse orale : assez pour voir l'agent réfléchir. */
+const LATENCE_ORALE = 1000;
+
+/**
+ * `audio` : ce qu'on vient de dire, enregistré par le micro (un tour de
+ * parole). `historique` : les tours d'avant, en texte.
+ */
+export async function parler(audio: Blob, contexte: ContexteQuestion, historique: Message[] = []): Promise<ReponseOrale> {
+    await new Promise((r) => setTimeout(r, LATENCE_ORALE));
+    const tour = historique.filter((m) => m.auteur === 'moi').length + 1;
+    const extrait = contexte.texte.length > 40 ? `${contexte.texte.slice(0, 40)}…` : contexte.texte;
+    return {
+        texte: `Réponse orale factice numéro ${tour}. J'ai bien reçu ${audio.size > 0 ? 'ton enregistrement' : 'un enregistrement vide'}, `
+            + `sur le passage « ${extrait} ». Le back n'est pas encore branché.`,
+    };
+}
