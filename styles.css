@@ -52,11 +52,6 @@
     gap: 4px;
 }
 
-/* Pas de poignée : la barre appartient à son passage, on ne la traîne pas. */
-.agent-barre .toolbar-handle {
-    display: none;
-}
-
 /* Les outils cachés tant que la barre n'est pas rallongée : l'attribut
    `hidden` ne suffit pas, le `display: flex` de .toolbar-item l'écraserait. */
 .agent-barre .toolbar-item[hidden] {

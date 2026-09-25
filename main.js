@@ -205,7 +205,7 @@ var Fenetre = class {
     poignee.classList.add("agent-widget-poignee");
     this.geste(poignee, (e) => {
       if (e.target instanceof Element && e.target.closest("button, input, textarea")) return null;
-      return (dx, dy, depart) => this.bornerDeplacement(dx, dy, depart);
+      return (dx, dy, depart) => bornerAuPane(this.repere, dx, dy, depart);
     });
     for (const bord of BORDS) {
       const b = el.appendChild(document.createElement("div"));
@@ -253,17 +253,6 @@ var Fenetre = class {
     this.el.remove();
   }
   // ── Les gestes ─────────────────────────────────────────────────────────
-  /**
-   * Déplacé, le widget reste dans son pane, à MARGE de ses bords : au-delà,
-   * le pane le rogne. Seul le geste est borné : le défilement peut
-   * l'emporter hors de l'écran avec son texte, comme le texte.
-   */
-  bornerDeplacement(dx, dy, depart) {
-    const p = this.repere.paneClient();
-    const x = Math.max(p.left + MARGE2, Math.min(depart.left + dx, p.right - MARGE2 - depart.width));
-    const y = Math.max(p.top + MARGE2, Math.min(depart.top + dy, p.bottom - MARGE2 - depart.height));
-    return new DOMRect(x, y, depart.width, depart.height);
-  }
   /** Tirer le haut ou la gauche déplace le coin : le bord opposé ne bouge pas. */
   bornerTaille(bord, dx, dy, d) {
     const p = this.repere.paneClient();
@@ -287,46 +276,29 @@ var Fenetre = class {
       if (e.button !== 0 || !this.handle) return;
       const transformer = debut(e);
       if (!transformer) return;
-      e.preventDefault();
-      e.stopPropagation();
       const depart = this.el.getBoundingClientRect();
       const a0 = this.handle.getAnchor();
-      const x0 = e.clientX;
-      const y0 = e.clientY;
-      let parti = false;
-      cible.setPointerCapture(e.pointerId);
-      const move = (ev) => {
-        const dx = ev.clientX - x0;
-        const dy = ev.clientY - y0;
-        if (!parti && Math.abs(dx) < SEUIL && Math.abs(dy) < SEUIL) return;
-        if (!parti) {
-          parti = true;
+      suivreGeste(e, cible, {
+        debut: () => {
           this.touchee = true;
           this.el.classList.add("is-geste");
-        }
-        const voulue = transformer(dx, dy, depart);
-        const decalage = this.repere.ecartDocument(voulue.left - depart.left, voulue.top - depart.top);
-        const a = this.handle?.getAnchor();
-        if (!a) return;
-        if (voulue.width !== depart.width || voulue.height !== depart.height) {
-          const taille = this.repere.ecartDocument(voulue.width, voulue.height);
-          this.appliquerTaille({ width: taille.dx, height: taille.dy });
-        }
-        this.handle?.setAnchor(decaler(a, a0, decalage));
-      };
-      const fin = (ev) => {
-        cible.removeEventListener("pointermove", move);
-        cible.removeEventListener("pointerup", fin);
-        cible.removeEventListener("pointercancel", fin);
-        cible.removeEventListener("lostpointercapture", fin);
-        if (cible.hasPointerCapture(ev.pointerId)) cible.releasePointerCapture(ev.pointerId);
-        this.el.classList.remove("is-geste");
-      };
-      cible.addEventListener("pointermove", move);
-      cible.addEventListener("pointerup", fin);
-      cible.addEventListener("pointercancel", fin);
-      cible.addEventListener("lostpointercapture", fin);
+        },
+        pas: (dx, dy) => {
+          const voulue = transformer(dx, dy, depart);
+          if (voulue.width !== depart.width || voulue.height !== depart.height) {
+            const taille = this.repere.ecartDocument(voulue.width, voulue.height);
+            this.appliquerTaille({ width: taille.dx, height: taille.dy });
+          }
+          this.decalerDepuis(a0, voulue.left - depart.left, voulue.top - depart.top);
+        },
+        fin: () => this.el.classList.remove("is-geste")
+      });
     });
+  }
+  /** L'ancre COURANTE, décalée d'un écart client depuis l'ancre de départ. */
+  decalerDepuis(a0, dx, dy) {
+    const a = this.handle?.getAnchor();
+    if (a) this.handle?.setAnchor(decaler(a, a0, this.repere.ecartDocument(dx, dy)));
   }
   // ── La taille ──────────────────────────────────────────────────────────
   /**
@@ -355,6 +327,55 @@ var Fenetre = class {
     this.el.style.maxWidth = "";
   }
 };
+function bornerAuPane(repere, dx, dy, depart) {
+  const p = repere.paneClient();
+  const x = Math.max(p.left + MARGE2, Math.min(depart.left + dx, p.right - MARGE2 - depart.width));
+  const y = Math.max(p.top + MARGE2, Math.min(depart.top + dy, p.bottom - MARGE2 - depart.height));
+  return new DOMRect(x, y, depart.width, depart.height);
+}
+function suivreGeste(e, cible, rappels) {
+  e.preventDefault();
+  e.stopPropagation();
+  const x0 = e.clientX;
+  const y0 = e.clientY;
+  let parti = false;
+  cible.setPointerCapture(e.pointerId);
+  const move = (ev) => {
+    const dx = ev.clientX - x0;
+    const dy = ev.clientY - y0;
+    if (!parti && Math.abs(dx) < SEUIL && Math.abs(dy) < SEUIL) return;
+    if (!parti) {
+      parti = true;
+      rappels.debut?.();
+    }
+    rappels.pas(dx, dy);
+  };
+  const fin = (ev) => {
+    cible.removeEventListener("pointermove", move);
+    cible.removeEventListener("pointerup", fin);
+    cible.removeEventListener("pointercancel", fin);
+    cible.removeEventListener("lostpointercapture", fin);
+    if (cible.hasPointerCapture(ev.pointerId)) cible.releasePointerCapture(ev.pointerId);
+    rappels.fin?.();
+  };
+  cible.addEventListener("pointermove", move);
+  cible.addEventListener("pointerup", fin);
+  cible.addEventListener("pointercancel", fin);
+  cible.addEventListener("lostpointercapture", fin);
+}
+function deplacerParPoignee(e, cible, boite2, handle, repere) {
+  const depart = boite2.getBoundingClientRect();
+  const a0 = handle.getAnchor();
+  suivreGeste(e, cible, {
+    debut: () => boite2.classList.add("is-dragging"),
+    pas: (dx, dy) => {
+      const voulue = bornerAuPane(repere, dx, dy, depart);
+      const a = handle.getAnchor();
+      handle.setAnchor(decaler(a, a0, repere.ecartDocument(voulue.left - depart.left, voulue.top - depart.top)));
+    },
+    fin: () => boite2.classList.remove("is-dragging")
+  });
+}
 function decaler(a, a0, d) {
   if (a.mode === "viewport" && a0.mode === "viewport") return { ...a, x: a0.x + d.dx, y: a0.y + d.dy };
   if (a.mode === "document" && a0.mode === "document") return { ...a, dx: a0.dx + d.dx, dy: a0.dy + d.dy };
@@ -896,6 +917,13 @@ var BarreAgent = class extends import_fragment3.Component {
     this.toolbar.onHide(() => {
       if (this._loaded && !this.enRetrait) this.fermer();
     });
+    this.hote.addEventListener("pointerdown", (e) => {
+      if (e.button !== 0 || !this.handle || !this.toolbar.handleEl.contains(e.target)) return;
+      deplacerParPoignee(e, this.toolbar.handleEl, this.toolbar.dom, this.handle, this.repere);
+    }, true);
+    this.hote.addEventListener("dblclick", (e) => {
+      if (this.toolbar.handleEl.contains(e.target)) e.stopPropagation();
+    }, true);
     this.toolbar.dom.addEventListener("keydown", (e) => e.stopPropagation());
   }
   estOuverte() {
@@ -1264,13 +1292,13 @@ var CarnetTraces = class {
   ouverte = null;
   app;
   editor;
-  widgets;
+  repere;
   chemin;
   onOuvrir;
-  constructor(app, editor, widgets, chemin, onOuvrir) {
+  constructor(app, editor, repere, chemin, onOuvrir) {
     this.app = app;
     this.editor = editor;
-    this.widgets = widgets;
+    this.repere = repere;
     this.chemin = chemin;
     this.onOuvrir = onOuvrir;
   }
@@ -1343,15 +1371,27 @@ var CarnetTraces = class {
     const colonnes = [];
     const places = visibles.map((t) => ({ t, ligne: this.editor.coordsForRange(t.zone.from, t.zone.from + 1)[0] ?? null })).sort((a, b) => (a.ligne?.top ?? 0) - (b.ligne?.top ?? 0));
     for (const { t, ligne } of places) {
-      const { el, handle } = this.icone(t);
+      const { el, rangee, handle } = this.icone(t);
       el.classList.toggle("is-ouverte", t.id === this.ouverte);
       if (!ligne) continue;
       const top = (ligne.top + ligne.bottom) / 2 - TAILLE / 2;
       let col = 0;
       while ((colonnes[col] ?? []).some((y) => Math.abs(y - top) < TAILLE + 2)) col++;
       (colonnes[col] ??= []).push(top);
-      el.style.marginRight = `${col * (TAILLE + ECART)}px`;
-      handle.setAnchor({ mode: "gutter", side: "left", pos: t.zone.from, dy: top - ligne.top });
+      const dy = top - ligne.top;
+      if (this.repere.widgets.gutterFits("left")) {
+        rangee.style.visibility = "";
+        el.style.marginRight = `${col * (TAILLE + ECART)}px`;
+        handle.setAnchor({ mode: "gutter", side: "left", pos: t.zone.from, dy });
+        continue;
+      }
+      const texte = this.repere.versDocument(this.editor.contentEl.getBoundingClientRect());
+      const pane = this.repere.versDocument(this.repere.paneClient());
+      if (!texte || !pane) continue;
+      el.style.marginRight = "";
+      const x = texte.left - ECART - TAILLE - col * (TAILLE + ECART);
+      rangee.style.visibility = x < pane.left + 2 ? "hidden" : "";
+      handle.setAnchor({ mode: "document", pos: t.zone.from, dx: x - ligne.left, dy });
     }
   }
   detruire() {
@@ -1377,7 +1417,7 @@ var CarnetTraces = class {
     const rangee = document.createElement("div");
     rangee.classList.add("agent-trace-rangee");
     rangee.appendChild(el);
-    const handle = this.widgets.addWidget(rangee, { mode: "gutter", side: "left", pos: t.zone.from, dy: 0 });
+    const handle = this.repere.widgets.addWidget(rangee, { mode: "gutter", side: "left", pos: t.zone.from, dy: 0 });
     rangee.style.pointerEvents = "none";
     const posee = { el, rangee, handle };
     this.icones.set(t.id, posee);
@@ -2292,7 +2332,8 @@ function createAgentLayer(ctx) {
     majOccupe();
     editor.requestUpdate();
   };
-  const carnet = new CarnetTraces(ctx.app, editor, repere.widgets, chemin, rouvrir);
+  const carnet = new CarnetTraces(ctx.app, editor, repere, chemin, rouvrir);
+  const offGeometrie = ctx.overlays.onGeometryChange(() => carnet.placer());
   const occupe = () => bulle.estOuverte() || action.estOuverte() || voix.estOuverte();
   const majOccupe = () => annotation.suspendre(occupe());
   const offDeclencheurs = brancherDeclencheurs(editor, repere, annotation, chemin, occupe, (z, t) => {
@@ -2330,6 +2371,7 @@ function createAgentLayer(ctx) {
   });
   return () => {
     offDeclencheurs();
+    offGeometrie();
     refFichier.off();
     offSurlignage();
     offChange();

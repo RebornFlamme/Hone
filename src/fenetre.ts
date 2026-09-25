@@ -55,7 +55,7 @@ export class Fenetre {
         this.geste(poignee, (e) => {
             // Les boutons de l'en-tête (la croix) restent des boutons.
             if (e.target instanceof Element && e.target.closest('button, input, textarea')) return null;
-            return (dx, dy, depart) => this.bornerDeplacement(dx, dy, depart);
+            return (dx, dy, depart) => bornerAuPane(this.repere, dx, dy, depart);
         });
 
         for (const bord of BORDS) {
@@ -113,18 +113,6 @@ export class Fenetre {
 
     // ── Les gestes ─────────────────────────────────────────────────────────
 
-    /**
-     * Déplacé, le widget reste dans son pane, à MARGE de ses bords : au-delà,
-     * le pane le rogne. Seul le geste est borné : le défilement peut
-     * l'emporter hors de l'écran avec son texte, comme le texte.
-     */
-    private bornerDeplacement(dx: number, dy: number, depart: DOMRect): DOMRect {
-        const p = this.repere.paneClient();
-        const x = Math.max(p.left + MARGE, Math.min(depart.left + dx, p.right - MARGE - depart.width));
-        const y = Math.max(p.top + MARGE, Math.min(depart.top + dy, p.bottom - MARGE - depart.height));
-        return new DOMRect(x, y, depart.width, depart.height);
-    }
-
     /** Tirer le haut ou la gauche déplace le coin : le bord opposé ne bouge pas. */
     private bornerTaille(bord: Bord, dx: number, dy: number, d: DOMRect): DOMRect {
         const p = this.repere.paneClient();
@@ -150,48 +138,30 @@ export class Fenetre {
             if (e.button !== 0 || !this.handle) return;
             const transformer = debut(e);
             if (!transformer) return;
-            e.preventDefault();
-            e.stopPropagation();
             const depart = this.el.getBoundingClientRect();
             const a0 = this.handle.getAnchor();
-            const x0 = e.clientX;
-            const y0 = e.clientY;
-            let parti = false;
-            cible.setPointerCapture(e.pointerId);
-
-            const move = (ev: PointerEvent): void => {
-                const dx = ev.clientX - x0;
-                const dy = ev.clientY - y0;
-                if (!parti && Math.abs(dx) < SEUIL && Math.abs(dy) < SEUIL) return;
-                if (!parti) {
-                    parti = true;
+            suivreGeste(e, cible, {
+                debut: () => {
                     this.touchee = true;
                     this.el.classList.add('is-geste');
-                }
-                const voulue = transformer(dx, dy, depart);
-                const decalage = this.repere.ecartDocument(voulue.left - depart.left, voulue.top - depart.top);
-                const a = this.handle?.getAnchor();
-                if (!a) return;
-                if (voulue.width !== depart.width || voulue.height !== depart.height) {
-                    const taille = this.repere.ecartDocument(voulue.width, voulue.height);
-                    this.appliquerTaille({ width: taille.dx, height: taille.dy });
-                }
-                this.handle?.setAnchor(decaler(a, a0, decalage));
-            };
-            const fin = (ev: PointerEvent): void => {
-                cible.removeEventListener('pointermove', move);
-                cible.removeEventListener('pointerup', fin);
-                cible.removeEventListener('pointercancel', fin);
-                cible.removeEventListener('lostpointercapture', fin);
-                if (cible.hasPointerCapture(ev.pointerId)) cible.releasePointerCapture(ev.pointerId);
-                this.el.classList.remove('is-geste');
-            };
-            cible.addEventListener('pointermove', move);
-            cible.addEventListener('pointerup', fin);
-            cible.addEventListener('pointercancel', fin);
-            // Perdre le focus fenêtre ne délivre jamais de pointerup (le piège noté par Toolbar).
-            cible.addEventListener('lostpointercapture', fin);
+                },
+                pas: (dx, dy) => {
+                    const voulue = transformer(dx, dy, depart);
+                    if (voulue.width !== depart.width || voulue.height !== depart.height) {
+                        const taille = this.repere.ecartDocument(voulue.width, voulue.height);
+                        this.appliquerTaille({ width: taille.dx, height: taille.dy });
+                    }
+                    this.decalerDepuis(a0, voulue.left - depart.left, voulue.top - depart.top);
+                },
+                fin: () => this.el.classList.remove('is-geste'),
+            });
         });
+    }
+
+    /** L'ancre COURANTE, décalée d'un écart client depuis l'ancre de départ. */
+    private decalerDepuis(a0: WidgetAnchor, dx: number, dy: number): void {
+        const a = this.handle?.getAnchor();
+        if (a) this.handle?.setAnchor(decaler(a, a0, this.repere.ecartDocument(dx, dy)));
     }
 
     // ── La taille ──────────────────────────────────────────────────────────
@@ -224,6 +194,77 @@ export class Fenetre {
         this.el.style.height = '';
         this.el.style.maxWidth = '';
     }
+}
+
+/**
+ * Déplacé, un widget reste dans son pane, à MARGE de ses bords : au-delà, le
+ * pane le rogne. Seul le geste est borné : le défilement peut l'emporter hors
+ * de l'écran avec son texte, comme le texte.
+ */
+function bornerAuPane(repere: Repere, dx: number, dy: number, depart: DOMRect): DOMRect {
+    const p = repere.paneClient();
+    const x = Math.max(p.left + MARGE, Math.min(depart.left + dx, p.right - MARGE - depart.width));
+    const y = Math.max(p.top + MARGE, Math.min(depart.top + dy, p.bottom - MARGE - depart.height));
+    return new DOMRect(x, y, depart.width, depart.height);
+}
+
+/**
+ * Suit un geste au pointeur commencé par `e` sur `cible`, au-delà du SEUIL.
+ * `pas` reçoit l'écart CLIENT depuis le pointerdown.
+ */
+export function suivreGeste(
+    e: PointerEvent,
+    cible: HTMLElement,
+    rappels: { debut?: () => void; pas: (dx: number, dy: number) => void; fin?: () => void },
+): void {
+    e.preventDefault();
+    e.stopPropagation();
+    const x0 = e.clientX;
+    const y0 = e.clientY;
+    let parti = false;
+    cible.setPointerCapture(e.pointerId);
+
+    const move = (ev: PointerEvent): void => {
+        const dx = ev.clientX - x0;
+        const dy = ev.clientY - y0;
+        if (!parti && Math.abs(dx) < SEUIL && Math.abs(dy) < SEUIL) return;
+        if (!parti) {
+            parti = true;
+            rappels.debut?.();
+        }
+        rappels.pas(dx, dy);
+    };
+    const fin = (ev: PointerEvent): void => {
+        cible.removeEventListener('pointermove', move);
+        cible.removeEventListener('pointerup', fin);
+        cible.removeEventListener('pointercancel', fin);
+        cible.removeEventListener('lostpointercapture', fin);
+        if (cible.hasPointerCapture(ev.pointerId)) cible.releasePointerCapture(ev.pointerId);
+        rappels.fin?.();
+    };
+    cible.addEventListener('pointermove', move);
+    cible.addEventListener('pointerup', fin);
+    cible.addEventListener('pointercancel', fin);
+    // Perdre le focus fenêtre ne délivre jamais de pointerup (le piège noté par Toolbar).
+    cible.addEventListener('lostpointercapture', fin);
+}
+
+/**
+ * Déplace un widget du cœur par une poignée : `boite` est ce qu'on voit (et
+ * qu'on borne au pane), `handle` l'ancre qu'on décale.
+ */
+export function deplacerParPoignee(e: PointerEvent, cible: HTMLElement, boite: HTMLElement, handle: WidgetHandle, repere: Repere): void {
+    const depart = boite.getBoundingClientRect();
+    const a0 = handle.getAnchor();
+    suivreGeste(e, cible, {
+        debut: () => boite.classList.add('is-dragging'),
+        pas: (dx, dy) => {
+            const voulue = bornerAuPane(repere, dx, dy, depart);
+            const a = handle.getAnchor();
+            handle.setAnchor(decaler(a, a0, repere.ecartDocument(voulue.left - depart.left, voulue.top - depart.top)));
+        },
+        fin: () => boite.classList.remove('is-dragging'),
+    });
 }
 
 /** L'ancre courante `a`, décalée de `d` depuis la position de départ `a0`. */

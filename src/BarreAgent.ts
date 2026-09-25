@@ -1,5 +1,6 @@
 import { Component, Toolbar, type ToolbarItem, type WidgetHandle } from 'fragment';
 import { OUTILS } from './ActionAgent';
+import { deplacerParPoignee } from './fenetre';
 import { rallonger, type Rallonge } from './rallonge';
 import type { Repere } from './repere';
 import type { Outil } from './repondre';
@@ -31,9 +32,14 @@ export interface ActionsBarre {
  *   La Toolbar se pose à MARGE (8 px) du coin de son parent, d'où le décalage
  *   de l'hôte.
  *
- * Deux écarts à la Toolbar, en CSS seulement (styles.css) : pas de poignée
- * (la barre appartient au passage, on ne la traîne pas), et des items masqués
- * par `hidden`. Échap la ferme, comme toute Toolbar.
+ * ★ SA POIGNÉE est celle de la Toolbar, et on la traîne comme la barre
+ *   d'annotation. Mais la Toolbar borne son déplacement à son parent, l'hôte
+ *   0×0 : le geste est donc intercepté avant elle, et c'est l'ANCRE de l'hôte
+ *   qui bouge (fenetre.ts). Posée ailleurs, la barre reste dans le texte et
+ *   défile avec lui. Le double-clic, qui ferait pivoter la barre, est ignoré :
+ *   la rallonge (« … ») ne sait allonger qu'une barre verticale.
+ *
+ * Échap la ferme, comme toute Toolbar.
  */
 export class BarreAgent extends Component {
 
@@ -115,6 +121,15 @@ export class BarreAgent extends Component {
         this.toolbar.onHide(() => {
             if (this._loaded && !this.enRetrait) this.fermer();
         });
+
+        // La poignée déplace l'ancre de l'hôte, pas la Toolbar dans l'hôte.
+        this.hote.addEventListener('pointerdown', (e) => {
+            if (e.button !== 0 || !this.handle || !this.toolbar.handleEl.contains(e.target as Node)) return;
+            deplacerParPoignee(e, this.toolbar.handleEl, this.toolbar.dom, this.handle, this.repere);
+        }, true);
+        this.hote.addEventListener('dblclick', (e) => {
+            if (this.toolbar.handleEl.contains(e.target as Node)) e.stopPropagation();
+        }, true);
 
         // Comme dans la bulle : les touches ne partent pas vers les raccourcis de l'app.
         this.toolbar.dom.addEventListener('keydown', (e) => e.stopPropagation());

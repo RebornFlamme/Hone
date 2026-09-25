@@ -1,7 +1,8 @@
-import { setIcon, type App, type Editor, type WidgetHandle, type WidgetLayer } from 'fragment';
+import { setIcon, type App, type Editor, type WidgetHandle } from 'fragment';
 import { OUTILS } from './ActionAgent';
 import type { Stroke } from './annotation';
 import type { Cadre } from './fenetre';
+import type { Repere } from './repere';
 import type { ContexteQuestion, Outil } from './repondre';
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -21,6 +22,11 @@ import type { ContexteQuestion, Outil } from './repondre';
 //    marge est trop étroite. Une ancre de marge impose la largeur de la bande :
 //    le widget est une rangée de toute la bande, transparente aux clics, et
 //    l'icône s'y range côté texte.
+//
+//  ★ SOUS 60 PX DE MARGE, le cœur masque tout widget de marge : c'est sa règle
+//    pour un panneau, pas pour une icône de 24 px. Dans une fenêtre étroite,
+//    l'icône passe alors sur une ancre DOCUMENT, collée à gauche de la colonne,
+//    là où la bande se termine : elle suit le texte de la même façon.
 //
 //  Ce fichier ne sait ni ouvrir une carte ni ouvrir le chat : il range les
 //  traces, les dessine et prévient le calque (agentLayer) qu'on en a cliqué une.
@@ -77,20 +83,20 @@ export class CarnetTraces {
 
     private readonly app: App;
     private readonly editor: Editor;
-    private readonly widgets: WidgetLayer;
+    private readonly repere: Repere;
     private readonly chemin: () => string;
     private readonly onOuvrir: (trace: Trace, depuis: HTMLElement) => void;
 
     constructor(
         app: App,
         editor: Editor,
-        widgets: WidgetLayer,
+        repere: Repere,
         chemin: () => string,
         onOuvrir: (trace: Trace, depuis: HTMLElement) => void,
     ) {
         this.app = app;
         this.editor = editor;
-        this.widgets = widgets;
+        this.repere = repere;
         this.chemin = chemin;
         this.onOuvrir = onOuvrir;
     }
@@ -175,7 +181,7 @@ export class CarnetTraces {
             .map((t) => ({ t, ligne: this.editor.coordsForRange(t.zone.from, t.zone.from + 1)[0] ?? null }))
             .sort((a, b) => (a.ligne?.top ?? 0) - (b.ligne?.top ?? 0));
         for (const { t, ligne } of places) {
-            const { el, handle } = this.icone(t);
+            const { el, rangee, handle } = this.icone(t);
             el.classList.toggle('is-ouverte', t.id === this.ouverte);
             // Hors du viewport rendu : le cœur garde la dernière position.
             if (!ligne) continue;
@@ -183,9 +189,24 @@ export class CarnetTraces {
             let col = 0;
             while ((colonnes[col] ?? []).some((y) => Math.abs(y - top) < TAILLE + 2)) col++;
             (colonnes[col] ??= []).push(top);
-            el.style.marginRight = `${col * (TAILLE + ECART)}px`;
-            // Centrée sur la ligne : l'ancre de marge part du haut du glyphe.
-            handle.setAnchor({ mode: 'gutter', side: 'left', pos: t.zone.from, dy: top - ligne.top });
+            // Centrée sur la ligne : l'ancre part du haut du glyphe.
+            const dy = top - ligne.top;
+            if (this.repere.widgets.gutterFits('left')) {
+                rangee.style.visibility = '';
+                el.style.marginRight = `${col * (TAILLE + ECART)}px`;
+                handle.setAnchor({ mode: 'gutter', side: 'left', pos: t.zone.from, dy });
+                continue;
+            }
+            // Marge étroite : juste à gauche du texte, sans sortir du pane (la
+            // bande du cœur peut y avoir une largeur négative). Plus de place
+            // pour cette colonne : masquée, comme le ferait le cœur.
+            const texte = this.repere.versDocument(this.editor.contentEl.getBoundingClientRect());
+            const pane = this.repere.versDocument(this.repere.paneClient());
+            if (!texte || !pane) continue;
+            el.style.marginRight = '';
+            const x = texte.left - ECART - TAILLE - col * (TAILLE + ECART);
+            rangee.style.visibility = x < pane.left + 2 ? 'hidden' : '';
+            handle.setAnchor({ mode: 'document', pos: t.zone.from, dx: x - ligne.left, dy });
         }
     }
 
@@ -193,7 +214,7 @@ export class CarnetTraces {
         for (const id of [...this.icones.keys()]) this.retirer(id);
     }
 
-    private icone(t: Trace): { el: HTMLButtonElement; handle: WidgetHandle } {
+    private icone(t: Trace): { el: HTMLButtonElement; rangee: HTMLElement; handle: WidgetHandle } {
         const deja = this.icones.get(t.id);
         if (deja) return deja;
         const el = document.createElement('button');
@@ -221,7 +242,7 @@ export class CarnetTraces {
         const rangee = document.createElement('div');
         rangee.classList.add('agent-trace-rangee');
         rangee.appendChild(el);
-        const handle = this.widgets.addWidget(rangee, { mode: 'gutter', side: 'left', pos: t.zone.from, dy: 0 });
+        const handle = this.repere.widgets.addWidget(rangee, { mode: 'gutter', side: 'left', pos: t.zone.from, dy: 0 });
         // La rangée couvre toute la bande : seule l'icône capte les clics.
         rangee.style.pointerEvents = 'none';
         const posee = { el, rangee, handle };

@@ -567,3 +567,58 @@ test('la confirmation de suppression cache la tête de chat', async () => {
     await carte(page).locator('.agent-pied-annuler').click();
     await expect(discuter(page)).toBeVisible();
 });
+
+test('fenêtre étroite : la réponse fermée laisse quand même son icône, qui rouvre et supprime', async () => {
+    const { page } = h;
+    // La colonne remplit presque le pane : la marge gauche passe sous les
+    // 60 px où le cœur masque un widget de marge.
+    await page.setViewportSize({ width: 960, height: 800 });
+    const marge = await page.evaluate(() => {
+        const w = window as unknown as { app: any };
+        const view = w.app.workspace.getLeavesOfType('markdown')[0].view;
+        return document.querySelector('.cm-content')!.getBoundingClientRect().left - view.contentEl.getBoundingClientRect().left;
+    });
+    expect(marge).toBeLessThan(60);
+
+    await surligner(page, 'Ligne 3 :', 'Révolution française');
+    await carteOuverte(page);
+    await carte(page).locator('[aria-label="Fermer"]').click();
+    await expect(traces(page)).toBeVisible();
+    // Dans la marge : à gauche du texte, et dans le pane (pas sous l'explorateur).
+    const t = (await traces(page).boundingBox())!;
+    expect(t.x + t.width).toBeLessThanOrEqual(await bordGaucheTexte(page));
+    const pane = await page.evaluate(() => {
+        const w = window as unknown as { app: any };
+        return w.app.workspace.getLeavesOfType('markdown')[0].view.contentEl.getBoundingClientRect().left as number;
+    });
+    expect(t.x).toBeGreaterThanOrEqual(pane);
+
+    await traces(page).click();
+    await expect(carte(page)).toBeVisible();
+    await carte(page).locator('.agent-pied-poubelle').click();
+    await carte(page).locator('.agent-pied-supprimer').click();
+    await expect(carte(page)).toHaveCount(0);
+    await expect(traces(page)).toHaveCount(0);
+});
+
+test('la barre se déplace par sa poignée, puis défile avec le texte', async () => {
+    const { page } = h;
+    await surligner(page, 'Ligne 3 :', 'Révolution française');
+    await expect(barre(page)).toBeVisible();
+    const poignee = barre(page).locator('.toolbar-handle');
+    await expect(poignee).toBeVisible();
+    const a = (await barre(page).boundingBox())!;
+    const p = (await poignee.boundingBox())!;
+    await tirer(page, p.x + p.width / 2, p.y + p.height / 2, 120, 80);
+    const b = (await barre(page).boundingBox())!;
+    expect(Math.abs(b.x - a.x - 120)).toBeLessThan(2);
+    expect(Math.abs(b.y - a.y - 80)).toBeLessThan(2);
+    // Toujours ouverte, toujours verticale.
+    await expect(barre(page)).toHaveClass(/mod-vertical/);
+
+    // Ancrée au texte : elle défile avec lui.
+    await page.locator('.doc-scroll').evaluate((el) => { el.scrollTop += 100; });
+    await page.waitForTimeout(100);
+    const c = (await barre(page).boundingBox())!;
+    expect(Math.abs(c.y - (b.y - 100))).toBeLessThan(2);
+});

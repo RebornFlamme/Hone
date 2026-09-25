@@ -230,7 +230,10 @@ export function createAgentLayer(ctx: LayerContext): () => void {
         editor.requestUpdate();
     };
 
-    const carnet = new CarnetTraces(ctx.app, editor, repere.widgets, chemin, rouvrir);
+    const carnet = new CarnetTraces(ctx.app, editor, repere, chemin, rouvrir);
+    // La marge change de largeur avec le pane : l'icône passe de l'ancre de
+    // marge à l'ancre document, ou l'inverse.
+    const offGeometrie = ctx.overlays.onGeometryChange(() => carnet.placer());
 
     // ── Chat, carte ou pilule ouverts : l'annotation se tait ──────────────
     const occupe = (): boolean => bulle.estOuverte() || action.estOuverte() || voix.estOuverte();
@@ -289,6 +292,7 @@ export function createAgentLayer(ctx: LayerContext): () => void {
 
     return () => {
         offDeclencheurs();
+        offGeometrie();
         refFichier.off();
         offSurlignage();
         offChange();
