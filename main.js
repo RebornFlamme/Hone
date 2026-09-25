@@ -1,7 +1,9 @@
 "use strict";
+var __create = Object.create;
 var __defProp = Object.defineProperty;
 var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
 var __getOwnPropNames = Object.getOwnPropertyNames;
+var __getProtoOf = Object.getPrototypeOf;
 var __hasOwnProp = Object.prototype.hasOwnProperty;
 var __export = (target, all) => {
   for (var name in all)
@@ -15,6 +17,14 @@ var __copyProps = (to, from, except, desc) => {
   }
   return to;
 };
+var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__getProtoOf(mod)) : {}, __copyProps(
+  // If the importer is in node compatibility mode or this is not an ESM
+  // file that has been converted to a CommonJS file using a Babel-
+  // compatible transform (i.e. "__esModule" has not been set), then set
+  // "default" to the CommonJS "module.exports" for node compatibility.
+  isNodeMode || !mod || !mod.__esModule ? __defProp(target, "default", { value: mod, enumerable: true }) : target,
+  mod
+));
 var __toCommonJS = (mod) => __copyProps(__defProp({}, "__esModule", { value: true }), mod);
 
 // src/main.ts
@@ -23,6 +33,7 @@ __export(main_exports, {
   default: () => AgentPlugin
 });
 module.exports = __toCommonJS(main_exports);
+var fragment = __toESM(require("fragment"));
 var import_fragment9 = require("fragment");
 
 // src/agentLayer.ts
@@ -2404,8 +2415,15 @@ var MarqueZone = class _MarqueZone {
 };
 
 // src/main.ts
+var ATTENDUS = ["WidgetLayer", "posVisibility", "hasText"];
 var AgentPlugin = class extends import_fragment9.Plugin {
   onload() {
+    const api = fragment;
+    const manquants = ATTENDUS.filter((nom) => typeof api[nom] !== "function");
+    if (manquants.length > 0) {
+      console.error(`[agent] d\xE9sactiv\xE9 : le c\u0153ur n'exporte pas encore ${manquants.join(", ")} (core/api.ts).`);
+      return;
+    }
     this.registerLayer({
       id: "agent",
       name: "Agent",
