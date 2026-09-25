@@ -81,9 +81,25 @@ svg {
   display: flex;
   align-items: center;
   gap: 10px;
+  min-height: 44px;
+  padding: 0 6px 0 0;
+  border: 0;
+  border-radius: 10px;
+  background: none;
+  color: inherit;
+  font: inherit;
   font-weight: 700;
   font-size: 18px;
   letter-spacing: -0.02em;
+  cursor: pointer;
+}
+
+.brand:active .brand__mark { transform: scale(0.9); }
+.brand__mark { transition: transform 0.15s; }
+
+.brand:focus-visible {
+  outline: 3px solid var(--accent);
+  outline-offset: 3px;
 }
 
 .brand__mark {

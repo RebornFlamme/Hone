@@ -9,6 +9,7 @@ const errorMessage = document.getElementById("error-message");
 let url = null;
 let stream = null; 
 const retry = document.getElementById("error-retry");
+const home = document.getElementById("home");
 const authorization = document.getElementById("allow-camera");
 
 photo.addEventListener("change", () => {
@@ -49,21 +50,39 @@ function showPhoto(image){
 
 
 
-function showScreen(id){
-    const listScreen = document.querySelectorAll(".screen");
-    const update = () =>{
-        listScreen.forEach((screen) => {
-            screen.hidden = screen.id !==id;
-        });
-    };
-
+// Applique un changement d'affichage avec la transition animée (si supportée)
+function withTransition(update){
     if (document.startViewTransition){
-        document.startViewTransition(update); 
+        document.startViewTransition(update);
     }
     else{
         update();
     }
-    
+}
+
+// Affiche l'écran `id` et cache les autres (sans animation)
+function setScreen(id){
+    document.querySelectorAll(".screen").forEach((screen) => {
+        screen.hidden = screen.id !== id;
+    });
+}
+
+function showScreen(id){
+    withTransition(() => setScreen(id));
+}
+
+// Retour à l'accueil de base (Caméra / Importer), d'où qu'on vienne
+function goHome(){
+    const alreadyHome = !welcomeScreen.hidden
+        && !welcomeScreen.classList.contains("has-photo")
+        && !welcomeScreen.classList.contains("has-camera");
+    if (alreadyHome) return; // pas d'animation pour rien
+
+    withTransition(() => {
+        stopCamera();
+        welcomeScreen.classList.remove("has-photo");
+        setScreen("screen-welcome");
+    });
 }
 
 function showError(message){
@@ -72,11 +91,9 @@ function showError(message){
 }
 
 
-retry.addEventListener("click", () => {
-    showScreen("screen-welcome");
-})
+retry.addEventListener("click", goHome);
+home.addEventListener("click", goHome);
 
-// Ouvre la caméra en live. `button` = le bouton cliqué, désactivé pendant la demande
 async function startCamera(button) {
     if (stream != null) return; // déjà ouverte
     button.disabled = true;
@@ -111,7 +128,7 @@ async function startCamera(button) {
 }
 
 authorization.addEventListener("click", () => startCamera(authorization));
-retake.addEventListener("click", () => startCamera(retake));
+retake.addEventListener("click", goHome);
 
 function stopCamera() {
     if (stream == null) return;
@@ -120,10 +137,7 @@ function stopCamera() {
     welcomeScreen.classList.remove("has-camera");
 }
 
-cancelCamera.addEventListener("click", () => {
-    stopCamera();
-
-})
+cancelCamera.addEventListener("click", goHome);
 
 shutter.addEventListener("click", () => {
     // La vidéo n'a pas encore reçu d'image : rien à capturer
