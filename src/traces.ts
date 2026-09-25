@@ -2,6 +2,7 @@ import { setIcon, type App, type Editor, type OverlayHost, type Stroke } from 'f
 import { posVisibility } from './coeur';
 import { OUTILS } from './ActionAgent';
 import type { ContexteQuestion, Outil } from './repondre';
+import type { Cadre } from './widget';
 
 // ═══════════════════════════════════════════════════════════════════════════
 //  L'historique de l'agent, dans la marge. Une carte d'outil ou une
@@ -41,6 +42,8 @@ export interface Trace {
     /** L'écart entre le trait et le début du passage, pour recaler le trait à la réouverture. */
     decalageTrait: number;
     contenu: Contenu;
+    /** Où la carte ou le chat avaient été posés, et leur taille (widget.ts). */
+    cadre: Cadre | null;
 }
 
 /** Côté d'une icône, et l'écart entre deux icônes posées sur la même hauteur. */
@@ -93,15 +96,16 @@ export class CarnetTraces {
      * Ce qu'on vient de fermer. Si c'est une trace rouverte, elle reprend sa
      * place (avec la conversation, peut-être allongée) ; sinon, une trace neuve.
      */
-    fermer(zone: ContexteQuestion, trait: Stroke, contenu: Contenu): void {
+    fermer(zone: ContexteQuestion, trait: Stroke, contenu: Contenu, cadre: Cadre | null): void {
         const rouverte = this.traces.find((t) => t.id === this.ouverte);
         this.ouverte = null;
         if (rouverte) {
             rouverte.contenu = contenu;
+            rouverte.cadre = cadre;
             this.placer();
             return;
         }
-        this.traces.push({ id: prochainId++, zone, trait, decalageTrait: trait.pos - zone.from, contenu });
+        this.traces.push({ id: prochainId++, zone, trait, decalageTrait: trait.pos - zone.from, contenu, cadre });
         this.placer();
     }
 

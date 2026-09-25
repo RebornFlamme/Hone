@@ -1710,6 +1710,180 @@ var PiedSupprimer = class {
   }
 };
 
+// src/widget.ts
+var LARGEUR_MIN = 220;
+var HAUTEUR_MIN = 120;
+var MARGE2 = 8;
+var BORDS = ["n", "s", "e", "w", "ne", "nw", "se", "sw"];
+var Widget = class {
+  /** null : placé par Floating UI, jamais touché. */
+  cadre = null;
+  el;
+  reference;
+  constructor(el, poignee, reference) {
+    this.el = el;
+    this.reference = reference;
+    this.el.classList.add("agent-widget");
+    poignee.classList.add("agent-widget-poignee");
+    this.glisser(poignee, (e) => {
+      if (e.target instanceof Element && e.target.closest("button, input, textarea")) return null;
+      return (dx, dy, depart) => this.borner({ ...depart, dx: depart.dx + dx, dy: depart.dy + dy }, true);
+    });
+    for (const bord of BORDS) {
+      const b = this.el.appendChild(document.createElement("div"));
+      b.classList.add("agent-widget-bord", `mod-${bord}`);
+      b.setAttribute("aria-hidden", "true");
+      this.glisser(b, () => (dx, dy, depart) => this.borner(redimensionner(bord, dx, dy, depart), false));
+    }
+  }
+  /** Oublie le cadre : la prochaine ouverture repart de la place automatique. */
+  oublier() {
+    this.cadre = null;
+    this.el.classList.remove("is-cadre");
+    this.el.style.width = "";
+    this.el.style.height = "";
+    this.el.style.maxWidth = "";
+  }
+  /** Reprend un cadre gardé (une réponse rouverte depuis la marge). */
+  reprendre(cadre) {
+    if (!cadre) {
+      this.oublier();
+      return;
+    }
+    this.cadre = { ...cadre };
+    this.appliquerTaille();
+  }
+  /**
+   * Pose le widget sur son cadre. À appeler à la place de Floating UI dès
+   * qu'il y a un cadre, à chaque scroll ou édition (autoUpdate du composant).
+   */
+  poser() {
+    if (!this.cadre) return;
+    const ref = this.reference();
+    const loin = ref.left < -1e4;
+    this.el.style.visibility = loin ? "hidden" : "visible";
+    if (loin) return;
+    this.plafonner();
+    const { ox, oy } = this.origine();
+    this.el.style.left = `${ref.left + this.cadre.dx - ox}px`;
+    this.el.style.top = `${ref.top + this.cadre.dy - oy}px`;
+  }
+  /**
+   * Garde le widget dans son pane, à MARGE de ses bords : au-delà, le pane le
+   * rogne (il passait sous la barre latérale). Déplacé, il est repoussé
+   * dedans ; agrandi, il s'arrête au bord. Seul le geste est borné : le
+   * défilement peut l'emporter hors de l'écran avec son texte.
+   */
+  borner(c, deplacement) {
+    const pane = this.el.parentElement?.getBoundingClientRect();
+    if (!pane) return c;
+    const ref = this.reference();
+    const gauche = pane.left + MARGE2;
+    const droite = pane.right - MARGE2;
+    const haut = pane.top + MARGE2;
+    const bas = pane.bottom - MARGE2;
+    let x = ref.left + c.dx;
+    let y = ref.top + c.dy;
+    let { width, height } = c;
+    if (deplacement) {
+      x = Math.max(gauche, Math.min(x, droite - width));
+      y = Math.max(haut, Math.min(y, bas - height));
+    } else {
+      const x2 = Math.min(x + width, droite);
+      const y2 = Math.min(y + height, bas);
+      x = Math.max(x, gauche);
+      y = Math.max(y, haut);
+      width = Math.max(Math.min(LARGEUR_MIN, c.width), x2 - x);
+      height = Math.max(Math.min(HAUTEUR_MIN, c.height), y2 - y);
+    }
+    return { dx: x - ref.left, dy: y - ref.top, width, height };
+  }
+  /**
+   * Jamais plus grand que son pane : un cadre gardé dans une grande fenêtre
+   * peut revenir dans un pane devenu plus étroit (fenêtre réduite, split).
+   */
+  plafonner() {
+    const pane = this.el.parentElement?.getBoundingClientRect();
+    if (!this.cadre || !pane) return;
+    const largeur = Math.max(Math.min(LARGEUR_MIN, this.cadre.width), pane.width - 2 * MARGE2);
+    const hauteur = Math.max(Math.min(HAUTEUR_MIN, this.cadre.height), pane.height - 2 * MARGE2);
+    if (this.cadre.width <= largeur && this.cadre.height <= hauteur) return;
+    this.cadre = { ...this.cadre, width: Math.min(this.cadre.width, largeur), height: Math.min(this.cadre.height, hauteur) };
+    this.appliquerTaille();
+  }
+  /** Client → repère du parent : l'écart entre la boîte client et left/top. */
+  origine() {
+    const r = this.el.getBoundingClientRect();
+    return {
+      ox: r.left - (parseFloat(this.el.style.left) || 0),
+      oy: r.top - (parseFloat(this.el.style.top) || 0)
+    };
+  }
+  /** Le cadre qui reproduit exactement la place actuelle (premier geste). */
+  cadreActuel() {
+    const r = this.el.getBoundingClientRect();
+    const ref = this.reference();
+    return { dx: r.left - ref.left, dy: r.top - ref.top, width: r.width, height: r.height };
+  }
+  appliquerTaille() {
+    if (!this.cadre) return;
+    this.el.classList.add("is-cadre");
+    this.el.style.maxWidth = "none";
+    this.el.style.width = `${this.cadre.width}px`;
+    this.el.style.height = `${this.cadre.height}px`;
+  }
+  /**
+   * Un geste au pointeur sur `cible`. `debut` décide au pointerdown si le
+   * geste a lieu et rend la transformation du cadre de départ par le
+   * déplacement du pointeur.
+   */
+  glisser(cible, debut) {
+    const down = (e) => {
+      if (e.button !== 0) return;
+      const transformer = debut(e);
+      if (!transformer) return;
+      e.preventDefault();
+      e.stopPropagation();
+      const depart = this.cadre ?? this.cadreActuel();
+      const x0 = e.clientX;
+      const y0 = e.clientY;
+      cible.setPointerCapture(e.pointerId);
+      this.el.classList.add("is-geste");
+      const move = (ev) => {
+        this.cadre = transformer(ev.clientX - x0, ev.clientY - y0, depart);
+        this.appliquerTaille();
+        this.poser();
+      };
+      const up = () => {
+        cible.removeEventListener("pointermove", move);
+        cible.removeEventListener("pointerup", up);
+        cible.removeEventListener("pointercancel", up);
+        this.el.classList.remove("is-geste");
+      };
+      cible.addEventListener("pointermove", move);
+      cible.addEventListener("pointerup", up);
+      cible.addEventListener("pointercancel", up);
+    };
+    cible.addEventListener("pointerdown", down);
+  }
+};
+function redimensionner(bord, dx, dy, c) {
+  let { dx: x, dy: y, width, height } = c;
+  const largeurMin = Math.min(LARGEUR_MIN, c.width);
+  const hauteurMin = Math.min(HAUTEUR_MIN, c.height);
+  if (bord.includes("e")) width = Math.max(largeurMin, c.width + dx);
+  if (bord.includes("s")) height = Math.max(hauteurMin, c.height + dy);
+  if (bord.includes("w")) {
+    width = Math.max(largeurMin, c.width - dx);
+    x = c.dx + c.width - width;
+  }
+  if (bord.includes("n")) {
+    height = Math.max(hauteurMin, c.height - dy);
+    y = c.dy + c.height - height;
+  }
+  return { dx: x, dy: y, width, height };
+}
+
 // src/ActionAgent.ts
 var OUTILS = {
   definir: { icone: "book-a", libelle: "D\xE9finir" },
@@ -1728,6 +1902,8 @@ var ActionAgent = class extends import_fragment2.Component {
   titreEl;
   corpsEl;
   pied;
+  /** Déplacer et agrandir la carte (widget.ts). Le rond, lui, ne bouge pas. */
+  widget;
   /** Le numéro du lancement en cours : une réponse d'un lancement fermé est ignorée. */
   lancement = 0;
   /**
@@ -1781,6 +1957,7 @@ var ActionAgent = class extends import_fragment2.Component {
     this.corpsEl.setAttribute("aria-live", "polite");
     this.pied = new PiedSupprimer(app, onSupprimer);
     this.carteEl.appendChild(this.pied.el);
+    this.widget = new Widget(this.carteEl, tete, () => reference.getBoundingClientRect());
     this.carteEl.addEventListener("keydown", (e) => e.stopPropagation());
   }
   estOuverte() {
@@ -1789,6 +1966,10 @@ var ActionAgent = class extends import_fragment2.Component {
   /** La réponse que la carte montre, ou null (l'agent réfléchit encore, ou a échoué). */
   resultat() {
     return this.montre;
+  }
+  /** Où la carte a été posée et à quelle taille, null si on n'y a pas touché. */
+  cadre() {
+    return this.widget.cadre ? { ...this.widget.cadre } : null;
   }
   /**
    * Lance `outil` sur le passage. `depuis` est la boîte CLIENT de la barre,
@@ -1822,8 +2003,9 @@ var ActionAgent = class extends import_fragment2.Component {
    * Rouvre une réponse déjà reçue (une icône de l'historique, traces.ts) :
    * pas de rond, la carte sort directement de l'icône.
    */
-  montrer(outil, texte, depuis) {
+  montrer(outil, texte, depuis, cadre) {
     this.preparer(outil);
+    this.widget.reprendre(cadre);
     this.pied.montrer(true);
     this.montre = { outil, texte };
     this.corpsEl.textContent = texte;
@@ -1851,6 +2033,7 @@ var ActionAgent = class extends import_fragment2.Component {
     this.corpsEl.textContent = "";
     this.corpsEl.classList.remove("is-error");
     this.pied.montrer(false);
+    this.widget.oublier();
     this.montre = null;
   }
   onload() {
@@ -1889,7 +2072,8 @@ var ActionAgent = class extends import_fragment2.Component {
     });
     const enCours = [];
     if (this.cercleEl.isConnected) enCours.push(poser(this.cercleEl, "right"));
-    if (this.carteEl.isConnected) enCours.push(poser(this.carteEl, "right-start"));
+    if (this.carteEl.isConnected && this.widget.cadre) this.widget.poser();
+    else if (this.carteEl.isConnected) enCours.push(poser(this.carteEl, "right-start"));
     return Promise.all(enCours).then(() => void 0);
   }
   /** Le rond s'ouvre en carte : la goutte du chat (eclosion.ts), depuis le rond. */
@@ -2159,6 +2343,8 @@ var BulleAgent = class extends import_fragment4.Component {
   champEl;
   envoyerEl;
   pied;
+  /** Déplacer et agrandir la bulle (widget.ts). */
+  widget;
   /** La zone sur laquelle porte la conversation, `null` bulle fermée. */
   contexte = null;
   enAttente = false;
@@ -2190,7 +2376,7 @@ var BulleAgent = class extends import_fragment4.Component {
   onFermer;
   /** Ce que la bulle ne doit jamais recouvrir, et le cadre où elle reste (voir eviter.ts). */
   evitement;
-  constructor(app, parentEl, reference, alignEl, onFermer, evitement, onSupprimer) {
+  constructor(app, parentEl, reference, alignEl, onFermer, evitement, onSupprimer, trait) {
     super();
     this.parentEl = parentEl;
     this.reference = reference;
@@ -2241,6 +2427,7 @@ var BulleAgent = class extends import_fragment4.Component {
     (0, import_fragment4.setIcon)(app, this.envoyerEl, "arrow-up");
     this.pied = new PiedSupprimer(app, onSupprimer);
     this.dom.appendChild(this.pied.el);
+    this.widget = new Widget(this.dom, tete, () => trait.getBoundingClientRect());
     this.dom.addEventListener("keydown", (e) => e.stopPropagation());
   }
   // ── L'état, vu de l'extérieur ─────────────────────────────────────────
@@ -2263,9 +2450,10 @@ var BulleAgent = class extends import_fragment4.Component {
    * de l'icône cliquée (`depuis`). On relit une discussion, on n'en lance pas
    * une autre : les outils de la barre n'ont rien à y faire.
    */
-  rouvrir(contexte, messages, reference, depuis) {
+  rouvrir(contexte, messages, reference, depuis, cadre) {
     this.fermer();
     this.seule = { reference, depuis };
+    this.widget.reprendre(cadre);
     this.ouvrir(contexte);
     this.filEl.replaceChildren();
     for (const m of messages) this.ajouterMessage(m.auteur, m.texte);
@@ -2324,6 +2512,8 @@ var BulleAgent = class extends import_fragment4.Component {
   onunload() {
     const messages = this.conversation();
     const contexte = this.contexte;
+    const cadre = this.widget.cadre;
+    this.widget.oublier();
     this.eclosion?.annuler();
     this.eclosion = null;
     this.dom.style.opacity = "";
@@ -2336,7 +2526,7 @@ var BulleAgent = class extends import_fragment4.Component {
     this.enAttente = false;
     this.seule = null;
     this.envoyerEl.disabled = false;
-    this.onFermer(messages, contexte);
+    this.onFermer(messages, contexte, cadre);
   }
   /**
    * Recalcule la position. Public : le calque l'appelle quand la zone bouge
@@ -2345,6 +2535,10 @@ var BulleAgent = class extends import_fragment4.Component {
    */
   placer() {
     if (!this._loaded) return Promise.resolve();
+    if (this.widget.cadre) {
+      this.widget.poser();
+      return Promise.resolve();
+    }
     const seule = this.seule;
     return computePosition2(seule?.reference ?? this.reference, this.dom, {
       placement: "right-start",
@@ -2447,15 +2641,16 @@ var CarnetTraces = class {
    * Ce qu'on vient de fermer. Si c'est une trace rouverte, elle reprend sa
    * place (avec la conversation, peut-être allongée) ; sinon, une trace neuve.
    */
-  fermer(zone, trait, contenu) {
+  fermer(zone, trait, contenu, cadre) {
     const rouverte = this.traces.find((t) => t.id === this.ouverte);
     this.ouverte = null;
     if (rouverte) {
       rouverte.contenu = contenu;
+      rouverte.cadre = cadre;
       this.placer();
       return;
     }
-    this.traces.push({ id: prochainId++, zone, trait, decalageTrait: trait.pos - zone.from, contenu });
+    this.traces.push({ id: prochainId++, zone, trait, decalageTrait: trait.pos - zone.from, contenu, cadre });
     this.placer();
   }
   /** Une carte ou un chat rouvert depuis une icône a été fermé sans rien à garder. */
@@ -2776,8 +2971,8 @@ function createAgentLayer(ctx) {
     obstacles: () => [...barresAnnotation(), ...passage()],
     limites
   });
-  const bulle = new BulleAgent(ctx.app, paneEl, barre.dom, barre.chatEl, (messages, contexte) => {
-    if (!suppression && contexte && trait && messages.length > 0) carnet.fermer(contexte, trait, { type: "chat", messages });
+  const bulle = new BulleAgent(ctx.app, paneEl, barre.dom, barre.chatEl, (messages, contexte, cadre) => {
+    if (!suppression && contexte && trait && messages.length > 0) carnet.fermer(contexte, trait, { type: "chat", messages }, cadre);
     else carnet.oublierOuverte();
     if (!barre.estOuverte()) {
       zone = null;
@@ -2787,10 +2982,10 @@ function createAgentLayer(ctx) {
   }, {
     obstacles: () => [...barresAnnotation(), ...barre.estOuverte() ? [boite2(barre.dom)] : [], ...passage()],
     limites
-  }, () => supprimer());
+  }, () => supprimer(), reference);
   const action = new ActionAgent(ctx.app, paneEl, reference, () => {
     const resultat = action.resultat();
-    if (!suppression && resultat && zone && trait) carnet.fermer(zone, trait, { type: "outil", ...resultat });
+    if (!suppression && resultat && zone && trait) carnet.fermer(zone, trait, { type: "outil", ...resultat }, action.cadre());
     else carnet.oublierOuverte();
     zone = null;
     majOccupe();
@@ -2806,9 +3001,9 @@ function createAgentLayer(ctx) {
     zone = { ...t.zone };
     trait = carnet.traitDe(t);
     if (t.contenu.type === "outil") {
-      action.montrer(t.contenu.outil, t.contenu.texte, depuis);
+      action.montrer(t.contenu.outil, t.contenu.texte, depuis, t.cadre);
     } else {
-      bulle.rouvrir(zone, t.contenu.messages, reference, depuis);
+      bulle.rouvrir(zone, t.contenu.messages, reference, depuis, t.cadre);
     }
     majOccupe();
     editor.requestUpdate();

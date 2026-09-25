@@ -151,8 +151,8 @@ export function createAgentLayer(ctx: LayerContext): () => void {
     });
 
     // Une conversation fermée laisse sa trace dans la marge.
-    const bulle = new BulleAgent(ctx.app, paneEl, barre.dom, barre.chatEl, (messages, contexte) => {
-        if (!suppression && contexte && trait && messages.length > 0) carnet.fermer(contexte, trait, { type: 'chat', messages });
+    const bulle = new BulleAgent(ctx.app, paneEl, barre.dom, barre.chatEl, (messages, contexte, cadre) => {
+        if (!suppression && contexte && trait && messages.length > 0) carnet.fermer(contexte, trait, { type: 'chat', messages }, cadre);
         else carnet.oublierOuverte();
         // Rouverte seule depuis la marge, sans barre : sa croix ferme tout.
         if (!barre.estOuverte()) {
@@ -163,13 +163,13 @@ export function createAgentLayer(ctx: LayerContext): () => void {
     }, {
         obstacles: () => [...barresAnnotation(), ...(barre.estOuverte() ? [boite(barre.dom)] : []), ...passage()],
         limites,
-    }, () => supprimer());
+    }, () => supprimer(), reference);
 
     // La croix de la carte ferme tout, comme celle de la barre. Une réponse
     // reçue laisse sa trace dans la marge.
     const action = new ActionAgent(ctx.app, paneEl, reference, () => {
         const resultat = action.resultat();
-        if (!suppression && resultat && zone && trait) carnet.fermer(zone, trait, { type: 'outil', ...resultat });
+        if (!suppression && resultat && zone && trait) carnet.fermer(zone, trait, { type: 'outil', ...resultat }, action.cadre());
         else carnet.oublierOuverte();
         zone = null;
         majOccupe();
@@ -194,10 +194,10 @@ export function createAgentLayer(ctx: LayerContext): () => void {
         zone = { ...t.zone };
         trait = carnet.traitDe(t);
         if (t.contenu.type === 'outil') {
-            action.montrer(t.contenu.outil, t.contenu.texte, depuis);
+            action.montrer(t.contenu.outil, t.contenu.texte, depuis, t.cadre);
         } else {
             // Seulement la discussion : pas la barre, pas ses outils.
-            bulle.rouvrir(zone, t.contenu.messages, reference, depuis);
+            bulle.rouvrir(zone, t.contenu.messages, reference, depuis, t.cadre);
         }
         majOccupe();
         editor.requestUpdate();

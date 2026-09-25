@@ -7,6 +7,7 @@ import { eclore, ressort, type Eclosion } from './eclosion';
 import { eviter, type Boite } from './eviter';
 import { agir, type ContexteQuestion, type Outil } from './repondre';
 import { PiedSupprimer } from './supprimer';
+import { Widget, type Cadre } from './widget';
 
 /** Les cinq outils : leur icône Lucide et leur nom, dans l'ordre de la barre. */
 export const OUTILS: Record<Outil, { icone: string; libelle: string }> = {
@@ -41,6 +42,8 @@ export class ActionAgent extends Component {
     private readonly titreEl: HTMLElement;
     private readonly corpsEl: HTMLElement;
     private readonly pied: PiedSupprimer;
+    /** Déplacer et agrandir la carte (widget.ts). Le rond, lui, ne bouge pas. */
+    private readonly widget: Widget;
 
     /** Le numéro du lancement en cours : une réponse d'un lancement fermé est ignorée. */
     private lancement = 0;
@@ -113,6 +116,8 @@ export class ActionAgent extends Component {
         this.pied = new PiedSupprimer(app, onSupprimer);
         this.carteEl.appendChild(this.pied.el);
 
+        this.widget = new Widget(this.carteEl, tete, () => reference.getBoundingClientRect());
+
         this.carteEl.addEventListener('keydown', (e) => e.stopPropagation());
     }
 
@@ -123,6 +128,11 @@ export class ActionAgent extends Component {
     /** La réponse que la carte montre, ou null (l'agent réfléchit encore, ou a échoué). */
     resultat(): { outil: Outil; texte: string } | null {
         return this.montre;
+    }
+
+    /** Où la carte a été posée et à quelle taille, null si on n'y a pas touché. */
+    cadre(): Cadre | null {
+        return this.widget.cadre ? { ...this.widget.cadre } : null;
     }
 
     /**
@@ -163,8 +173,9 @@ export class ActionAgent extends Component {
      * Rouvre une réponse déjà reçue (une icône de l'historique, traces.ts) :
      * pas de rond, la carte sort directement de l'icône.
      */
-    montrer(outil: Outil, texte: string, depuis: HTMLElement): void {
+    montrer(outil: Outil, texte: string, depuis: HTMLElement, cadre: Cadre | null): void {
         this.preparer(outil);
+        this.widget.reprendre(cadre);
         this.pied.montrer(true);
         this.montre = { outil, texte };
         this.corpsEl.textContent = texte;
@@ -194,6 +205,7 @@ export class ActionAgent extends Component {
         this.corpsEl.textContent = '';
         this.corpsEl.classList.remove('is-error');
         this.pied.montrer(false);
+        this.widget.oublier();
         this.montre = null;
     }
 
@@ -238,7 +250,9 @@ export class ActionAgent extends Component {
             });
         const enCours = [];
         if (this.cercleEl.isConnected) enCours.push(poser(this.cercleEl, 'right'));
-        if (this.carteEl.isConnected) enCours.push(poser(this.carteEl, 'right-start'));
+        // Déplacée ou agrandie : elle reste là où on l'a posée dans le texte.
+        if (this.carteEl.isConnected && this.widget.cadre) this.widget.poser();
+        else if (this.carteEl.isConnected) enCours.push(poser(this.carteEl, 'right-start'));
         return Promise.all(enCours).then(() => undefined);
     }
 

@@ -573,3 +573,69 @@
 .view-content:not(.agent-occupe) .annotation-surface.mod-gomme {
     cursor: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none' stroke-linecap='round' stroke-linejoin='round'%3E%3Cg stroke='white' stroke-width='4'%3E%3Cpath d='M21 21H8a2 2 0 0 1-1.42-.587l-3.994-3.999a2 2 0 0 1 0-2.828l10-10a2 2 0 0 1 2.829 0l5.999 6a2 2 0 0 1 0 2.828L12.834 21'/%3E%3Cpath d='m5.082 11.09 8.828 8.828'/%3E%3C/g%3E%3Cg stroke='black' stroke-width='2'%3E%3Cpath d='M21 21H8a2 2 0 0 1-1.42-.587l-3.994-3.999a2 2 0 0 1 0-2.828l10-10a2 2 0 0 1 2.829 0l5.999 6a2 2 0 0 1 0 2.828L12.834 21'/%3E%3Cpath d='m5.082 11.09 8.828 8.828'/%3E%3C/g%3E%3C/svg%3E") 5 18, cell;
 }
+
+/* ── Le chat et les cartes en widget (widget.ts) ───────────────────────────
+   L'en-tête se tient pour déplacer ; une bande invisible le long de chaque
+   bord et de chaque coin agrandit, et le curseur montre dans quel sens. */
+
+.agent-widget-poignee {
+    cursor: grab;
+    user-select: none;
+}
+
+.agent-widget-poignee button {
+    cursor: pointer;
+}
+
+.agent-widget.is-geste,
+.agent-widget.is-geste .agent-widget-poignee {
+    cursor: grabbing;
+    user-select: none;
+}
+
+.agent-widget-bord {
+    position: absolute;
+    z-index: 1;
+}
+
+/* Les bords débordent de moitié : on les attrape sans viser au pixel. */
+.agent-widget-bord.mod-n,
+.agent-widget-bord.mod-s { left: 8px; right: 8px; height: 8px; cursor: ns-resize; }
+.agent-widget-bord.mod-n { top: -4px; }
+.agent-widget-bord.mod-s { bottom: -4px; }
+
+.agent-widget-bord.mod-e,
+.agent-widget-bord.mod-w { top: 8px; bottom: 8px; width: 8px; cursor: ew-resize; }
+.agent-widget-bord.mod-e { right: -4px; }
+.agent-widget-bord.mod-w { left: -4px; }
+
+.agent-widget-bord.mod-ne,
+.agent-widget-bord.mod-nw,
+.agent-widget-bord.mod-se,
+.agent-widget-bord.mod-sw { width: 14px; height: 14px; z-index: 2; }
+.agent-widget-bord.mod-ne { top: -4px; right: -4px; cursor: nesw-resize; }
+.agent-widget-bord.mod-sw { bottom: -4px; left: -4px; cursor: nesw-resize; }
+.agent-widget-bord.mod-nw { top: -4px; left: -4px; cursor: nwse-resize; }
+.agent-widget-bord.mod-se { bottom: -4px; right: -4px; cursor: nwse-resize; }
+
+/* Taille imposée : la boîte mesurée au premier geste est la boîte posée. */
+.agent-widget.is-cadre {
+    box-sizing: border-box;
+}
+
+.agent-action-carte.is-cadre {
+    display: flex;
+    flex-direction: column;
+}
+
+.agent-action-carte.is-cadre .agent-action-corps {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+}
+
+.agent-bulle.is-cadre .agent-bulle-fil {
+    flex: 1;
+    min-height: 0;
+    max-height: none;
+}

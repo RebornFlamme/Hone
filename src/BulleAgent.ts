@@ -7,6 +7,7 @@ import { eclore, type Eclosion } from './eclosion';
 import { eviter, type Boite } from './eviter';
 import { repondre, type ContexteQuestion } from './repondre';
 import { PiedSupprimer } from './supprimer';
+import { Widget, type Cadre } from './widget';
 import type { Message } from './traces';
 
 /**
@@ -42,6 +43,8 @@ export class BulleAgent extends Component {
     private readonly champEl: HTMLTextAreaElement;
     private readonly envoyerEl: HTMLButtonElement;
     private readonly pied: PiedSupprimer;
+    /** Déplacer et agrandir la bulle (widget.ts). */
+    private readonly widget: Widget;
 
     /** La zone sur laquelle porte la conversation, `null` bulle fermée. */
     private contexte: ContexteQuestion | null = null;
@@ -74,7 +77,7 @@ export class BulleAgent extends Component {
      * Prévenu à chaque fermeture, avec la conversation et son passage tels
      * qu'ils étaient : le calque en garde une trace dans la marge (traces.ts).
      */
-    private readonly onFermer: (messages: Message[], contexte: ContexteQuestion | null) => void;
+    private readonly onFermer: (messages: Message[], contexte: ContexteQuestion | null, cadre: Cadre | null) => void;
 
     /** Ce que la bulle ne doit jamais recouvrir, et le cadre où elle reste (voir eviter.ts). */
     private readonly evitement: { obstacles: () => Boite[]; limites: () => Boite };
@@ -84,9 +87,10 @@ export class BulleAgent extends Component {
         parentEl: HTMLElement,
         reference: ReferenceElement,
         alignEl: HTMLElement,
-        onFermer: (messages: Message[], contexte: ContexteQuestion | null) => void,
+        onFermer: (messages: Message[], contexte: ContexteQuestion | null, cadre: Cadre | null) => void,
         evitement: { obstacles: () => Boite[]; limites: () => Boite },
         onSupprimer: () => void,
+        trait: ReferenceElement,
     ) {
         super();
         this.parentEl = parentEl;
@@ -156,6 +160,11 @@ export class BulleAgent extends Component {
         this.pied = new PiedSupprimer(app, onSupprimer);
         this.dom.appendChild(this.pied.el);
 
+        // Attrapée par l'en-tête, elle se déplace ; par un bord, elle
+        // s'agrandit. Son cadre est un écart au TRAIT, pas à la barre : il
+        // vaut aussi pour la bulle rouverte seule, sans barre.
+        this.widget = new Widget(this.dom, tete, () => trait.getBoundingClientRect());
+
         // Ce qu'on tape dans la bulle ne doit pas atteindre les raccourcis de
         // l'app (Cmd+Z annulerait un trait d'annotation au lieu d'un mot).
         this.dom.addEventListener('keydown', (e) => e.stopPropagation());
@@ -186,9 +195,14 @@ export class BulleAgent extends Component {
      * de l'icône cliquée (`depuis`). On relit une discussion, on n'en lance pas
      * une autre : les outils de la barre n'ont rien à y faire.
      */
-    rouvrir(contexte: ContexteQuestion, messages: Message[], reference: ReferenceElement, depuis: HTMLElement): void {
+    rouvrir(
+        contexte: ContexteQuestion, messages: Message[], reference: ReferenceElement, depuis: HTMLElement,
+        cadre: Cadre | null,
+    ): void {
         this.fermer();
         this.seule = { reference, depuis };
+        // Là où on l'avait laissée, à la taille qu'on lui avait donnée.
+        this.widget.reprendre(cadre);
         this.ouvrir(contexte);
         this.filEl.replaceChildren();
         for (const m of messages) this.ajouterMessage(m.auteur, m.texte);
@@ -264,6 +278,8 @@ export class BulleAgent extends Component {
     onunload(): void {
         const messages = this.conversation();
         const contexte = this.contexte;
+        const cadre = this.widget.cadre;
+        this.widget.oublier();
         this.eclosion?.annuler();
         this.eclosion = null;
         this.dom.style.opacity = '';
@@ -278,7 +294,7 @@ export class BulleAgent extends Component {
         this.enAttente = false;
         this.seule = null;
         this.envoyerEl.disabled = false;
-        this.onFermer(messages, contexte);
+        this.onFermer(messages, contexte, cadre);
     }
 
     /**
@@ -288,6 +304,11 @@ export class BulleAgent extends Component {
      */
     placer(): Promise<void> {
         if (!this._loaded) return Promise.resolve();
+        // Déplacée ou agrandie : elle reste là où on l'a posée dans le texte.
+        if (this.widget.cadre) {
+            this.widget.poser();
+            return Promise.resolve();
+        }
         const seule = this.seule;
         return computePosition(seule?.reference ?? this.reference, this.dom, {
             placement: 'right-start',
