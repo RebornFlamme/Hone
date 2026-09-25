@@ -51,8 +51,12 @@ export interface Requete {
     demande: Demande;
 }
 
-/** Processus → page. `morceau` : un bout de texte du chat, pour l'afficher en direct. */
+/**
+ * Processus → page. `morceau` : un bout de texte du chat, pour l'afficher en
+ * direct. `pause` : AGENT_BLOQUE=1, la page répond en factice.
+ */
 export type Retour =
     | { id: number; type: 'morceau'; texte: string }
     | { id: number; type: 'fin'; sortie: Sortie }
-    | { id: number; type: 'erreur'; message: string };
+    | { id: number; type: 'erreur'; message: string }
+    | { id: number; type: 'pause' };

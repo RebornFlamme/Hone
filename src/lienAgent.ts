@@ -29,6 +29,9 @@ interface EnAttente {
 /** Le message qu'une erreur de l'agent montre à l'utilisateur, tel quel. */
 export class ErreurAgent extends Error {}
 
+/** AGENT_BLOQUE=1 : l'agent ne répond pas, la page répond en factice (repondre.ts). */
+export class AgentEnPause extends ErreurAgent {}
+
 export class LienAgent {
 
     private enfant: ChildProcess | null = null;
@@ -103,6 +106,7 @@ export class LienAgent {
         clearTimeout(attente.minuterie);
         this.enAttente.delete(retour.id);
         if (retour.type === 'fin') attente.resoudre(retour.sortie);
+        else if (retour.type === 'pause') attente.rejeter(new AgentEnPause('Agent en pause (AGENT_BLOQUE=1).'));
         else attente.rejeter(new ErreurAgent(retour.message));
     }
 

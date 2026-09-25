@@ -128,7 +128,8 @@ const bloque = process.env.AGENT_BLOQUE?.trim() === '1';
 
 async function traiter({ id, demande }: Requete): Promise<void> {
     if (bloque) {
-        envoyer({ id, type: 'erreur', message: 'Agent en pause : aucun appel à OpenAI (AGENT_BLOQUE=1 dans le .env du plugin).' });
+        // Aucun appel à OpenAI : la page répond en factice.
+        envoyer({ id, type: 'pause' });
         return;
     }
     if (!agents) {
