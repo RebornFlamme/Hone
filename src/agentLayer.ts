@@ -1,9 +1,10 @@
-import { hasText, type Editor, type FileView, type ItemView, type LayerContext, type Marker, type Rect } from 'fragment';
+import type { Editor, FileView, ItemView, LayerContext, Marker, Rect } from 'fragment';
 import { ActionAgent } from './ActionAgent';
 import { brancherAnnotation, type Stroke } from './annotation';
 import { BarreAgent } from './BarreAgent';
 import { BulleAgent } from './BulleAgent';
 import { brancherDeclencheurs, SELECTION } from './declencheur';
+import { classeWidgetLayer, hasText } from './pont';
 import { Repere } from './repere';
 import type { ContexteQuestion } from './repondre';
 import { CarnetTraces, texteEntre, type Trace } from './traces';
@@ -28,6 +29,11 @@ export function createAgentLayer(ctx: LayerContext): () => void {
     // Pas de texte adressable (PDF scanné, image) : rien à citer.
     if (!surface || !hasText(surface)) return () => {};
     const editor: Editor = surface;
+    const Classe = classeWidgetLayer(ctx.app);
+    if (!Classe) {
+        console.error("[agent] désactivé sur cette vue : WidgetLayer introuvable (ni exporté par le cœur, ni dans le calque « Widgets de document »).");
+        return () => {};
+    }
 
     const paneEl = (ctx.view as ItemView).contentEl;
     const chemin = (): string => (ctx.view as FileView).file?.path ?? '';
@@ -38,7 +44,7 @@ export function createAgentLayer(ctx: LayerContext): () => void {
     let trait: Stroke | null = null;
 
     const annotation = brancherAnnotation(ctx.app, paneEl, chemin);
-    const repere = new Repere(editor, ctx.overlays, paneEl, () => trait, () => annotation.barre());
+    const repere = new Repere(editor, ctx.overlays, paneEl, () => trait, () => annotation.barre(), Classe);
 
     // ── Les pièces ─────────────────────────────────────────────────────────
 

@@ -7,10 +7,9 @@
 //  - DÉJÀ EXPORTÉ par fragmentApi : Component, Plugin, setIcon, Toolbar,
 //    ToolbarItem.
 //  - À EXPORTER par le cœur (demande faite à l'équipe) : WidgetLayer
-//    (core/layers/WidgetLayer.ts), posVisibility (core/layers/visibility.ts),
-//    hasText (core/editor/Editor.ts). Tant qu'ils ne sont pas dans
-//    fragmentApi, le plugin ne se charge pas : il est écrit pour l'API finale,
-//    sans copie de ces classes.
+//    (core/layers/WidgetLayer.ts) et hasText (core/editor/Editor.ts). En
+//    attendant, src/pont.ts les trouve sans les recopier ; il disparaîtra avec
+//    l'export.
 //
 //  L'accès au plugin d'annotation n'est pas ici : il n'a pas encore d'API
 //  publique, tout ce qu'on en lit passe par src/annotation.ts.
@@ -177,6 +176,4 @@ declare module 'fragment' {
         destroy(): void;
     }
 
-    /** À exporter : core/layers/visibility.ts. */
-    export function posVisibility(surface: DocumentSurface, pos: number): 'rendered' | 'hidden' | 'offscreen';
 }

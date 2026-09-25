@@ -33,11 +33,7 @@ __export(main_exports, {
   default: () => AgentPlugin
 });
 module.exports = __toCommonJS(main_exports);
-var fragment = __toESM(require("fragment"));
-var import_fragment9 = require("fragment");
-
-// src/agentLayer.ts
-var import_fragment8 = require("fragment");
+var import_fragment7 = require("fragment");
 
 // src/ActionAgent.ts
 var import_fragment2 = require("fragment");
@@ -1748,8 +1744,28 @@ function brancherDeclencheurs(editor, repere, annotation, chemin, occupe, surPas
   };
 }
 
+// src/pont.ts
+var fragment = __toESM(require("fragment"));
+var api = fragment;
+var trouvee = api.WidgetLayer ?? null;
+function classeWidgetLayer(app) {
+  if (trouvee) return trouvee;
+  const interne = app;
+  const docWidget = interne.plugins?.plugins?.get("doc-widget");
+  for (const entree of docWidget?.views?.values() ?? []) {
+    if (entree.widgets) {
+      trouvee = entree.widgets.constructor;
+      break;
+    }
+  }
+  return trouvee;
+}
+function hasText(surface) {
+  if (api.hasText) return api.hasText(surface);
+  return typeof surface.getLine === "function";
+}
+
 // src/repere.ts
-var import_fragment6 = require("fragment");
 var Repere = class {
   widgets;
   editor;
@@ -1757,13 +1773,13 @@ var Repere = class {
   paneEl;
   trait;
   barreAnnotation;
-  constructor(editor, overlays, paneEl, trait, barreAnnotation) {
+  constructor(editor, overlays, paneEl, trait, barreAnnotation, Classe) {
     this.editor = editor;
     this.overlays = overlays;
     this.paneEl = paneEl;
     this.trait = trait;
     this.barreAnnotation = barreAnnotation;
-    this.widgets = new import_fragment6.WidgetLayer(editor, overlays);
+    this.widgets = new Classe(editor, overlays);
   }
   detruire() {
     this.widgets.destroy();
@@ -1875,7 +1891,7 @@ var Repere = class {
 };
 
 // src/VoixAgent.ts
-var import_fragment7 = require("fragment");
+var import_fragment6 = require("fragment");
 
 // src/onde.ts
 var TRAITS = 5;
@@ -1963,7 +1979,7 @@ var RAIDEUR_SURVOL = (2 * Math.PI) ** 2;
 var AMORTISSEMENT_SURVOL = 2 * (1 - 0.6) * Math.sqrt(RAIDEUR_SURVOL);
 var MS_PAR_CARACTERE = 90;
 var LISSAGE = 0.4;
-var VoixAgent = class extends import_fragment7.Component {
+var VoixAgent = class extends import_fragment6.Component {
   el;
   contenuEl;
   stopEl;
@@ -2007,7 +2023,7 @@ var VoixAgent = class extends import_fragment7.Component {
     this.el.setAttribute("aria-label", "Discussion orale");
     const microEl = this.el.appendChild(document.createElement("span"));
     microEl.classList.add("agent-voix-micro");
-    (0, import_fragment7.setIcon)(app, microEl, "mic");
+    (0, import_fragment6.setIcon)(app, microEl, "mic");
     this.contenuEl = this.el.appendChild(document.createElement("div"));
     this.contenuEl.classList.add("agent-voix-contenu");
     const fermerEl = this.contenuEl.appendChild(document.createElement("button"));
@@ -2015,7 +2031,7 @@ var VoixAgent = class extends import_fragment7.Component {
     fermerEl.classList.add("agent-voix-fermer");
     fermerEl.setAttribute("aria-label", "Fermer");
     fermerEl.title = "Fermer";
-    (0, import_fragment7.setIcon)(app, fermerEl, "x");
+    (0, import_fragment6.setIcon)(app, fermerEl, "x");
     fermerEl.addEventListener("click", () => {
       this.parCroix = true;
       this.fermer();
@@ -2308,15 +2324,21 @@ var VoixAgent = class extends import_fragment7.Component {
 // src/agentLayer.ts
 function createAgentLayer(ctx) {
   const surface = ctx.editor;
-  if (!surface || !(0, import_fragment8.hasText)(surface)) return () => {
+  if (!surface || !hasText(surface)) return () => {
   };
   const editor = surface;
+  const Classe = classeWidgetLayer(ctx.app);
+  if (!Classe) {
+    console.error("[agent] d\xE9sactiv\xE9 sur cette vue : WidgetLayer introuvable (ni export\xE9 par le c\u0153ur, ni dans le calque \xAB Widgets de document \xBB).");
+    return () => {
+    };
+  }
   const paneEl = ctx.view.contentEl;
   const chemin = () => ctx.view.file?.path ?? "";
   let zone = null;
   let trait = null;
   const annotation = brancherAnnotation(ctx.app, paneEl, chemin);
-  const repere = new Repere(editor, ctx.overlays, paneEl, () => trait, () => annotation.barre());
+  const repere = new Repere(editor, ctx.overlays, paneEl, () => trait, () => annotation.barre(), Classe);
   const barre = new BarreAgent(repere, {
     onChat: () => {
       if (zone) bulle.ouvrir(zone);
@@ -2490,7 +2512,7 @@ function createAgentLayer(ctx) {
   const offSurlignage = editor.addLayer({
     above: false,
     markers: (e) => {
-      if (!zone || !(0, import_fragment8.hasText)(e)) return [];
+      if (!zone || !hasText(e)) return [];
       return e.coordsForRange(zone.from, zone.to).map((r) => new MarqueZone(r));
     }
   });
@@ -2539,15 +2561,8 @@ var MarqueZone = class _MarqueZone {
 };
 
 // src/main.ts
-var ATTENDUS = ["WidgetLayer", "posVisibility", "hasText"];
-var AgentPlugin = class extends import_fragment9.Plugin {
+var AgentPlugin = class extends import_fragment7.Plugin {
   onload() {
-    const api = fragment;
-    const manquants = ATTENDUS.filter((nom) => typeof api[nom] !== "function");
-    if (manquants.length > 0) {
-      console.error(`[agent] d\xE9sactiv\xE9 : le c\u0153ur n'exporte pas encore ${manquants.join(", ")} (core/api.ts).`);
-      return;
-    }
     const racine = racineDuVault();
     if (racine) {
       const path = window.require("path");
