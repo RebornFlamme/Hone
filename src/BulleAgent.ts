@@ -346,7 +346,14 @@ export class BulleAgent extends Component {
         reponseEl.classList.add('is-pending');
 
         try {
-            const reponse = await repondre(question, contexte, historique);
+            // Le chat s'écrit en direct : les points de l'attente s'effacent au premier morceau.
+            let recu = '';
+            const reponse = await repondre(question, contexte, historique, (morceau) => {
+                if (!estCourante()) return;
+                recu += morceau;
+                reponseEl.textContent = recu;
+                this.filEl.scrollTop = this.filEl.scrollHeight;
+            });
             // Fermée pendant l'attente (et peut-être rouverte ailleurs) : cette
             // réponse n'appartient plus à la conversation affichée.
             if (!estCourante()) return;

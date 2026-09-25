@@ -389,10 +389,119 @@ function decaler(a, a0, d) {
   return a;
 }
 
+// src/nettoyerSvg.ts
+var SVG_NS = "http://www.w3.org/2000/svg";
+var SVG_TAILLE_MAX = 6e4;
+var ELEMENTS_MAX = 400;
+var BALISES = /* @__PURE__ */ new Set([
+  "svg",
+  "g",
+  "rect",
+  "circle",
+  "ellipse",
+  "line",
+  "path",
+  "polyline",
+  "polygon",
+  "text",
+  "tspan",
+  "marker",
+  "defs",
+  "title"
+]);
+var ATTRIBUTS = /* @__PURE__ */ new Set([
+  "viewBox",
+  "preserveAspectRatio",
+  "x",
+  "y",
+  "x1",
+  "y1",
+  "x2",
+  "y2",
+  "cx",
+  "cy",
+  "r",
+  "rx",
+  "ry",
+  "width",
+  "height",
+  "d",
+  "points",
+  "transform",
+  "dx",
+  "dy",
+  "fill",
+  "fill-opacity",
+  "stroke",
+  "stroke-width",
+  "stroke-opacity",
+  "stroke-dasharray",
+  "stroke-linecap",
+  "stroke-linejoin",
+  "opacity",
+  "font-family",
+  "font-size",
+  "font-weight",
+  "font-style",
+  "text-anchor",
+  "dominant-baseline",
+  "id",
+  "marker-start",
+  "marker-mid",
+  "marker-end",
+  "markerWidth",
+  "markerHeight",
+  "refX",
+  "refY",
+  "orient",
+  "markerUnits"
+]);
+function valeurSure(valeur) {
+  const v = valeur.toLowerCase();
+  if (/javascript:|data:|expression\(|@import/.test(v)) return false;
+  const urls = v.match(/url\(([^)]*)\)/g) ?? [];
+  return urls.every((u) => /^url\(\s*['"]?#[\w-]+['"]?\s*\)$/.test(u));
+}
+function copier(source, compte) {
+  const nom = source.localName;
+  if (!BALISES.has(nom) || source.namespaceURI !== SVG_NS) return null;
+  if (++compte.n > ELEMENTS_MAX) return null;
+  const el = document.createElementNS(SVG_NS, nom);
+  for (const attr of Array.from(source.attributes)) {
+    if (attr.namespaceURI !== null && attr.namespaceURI !== SVG_NS) continue;
+    if (!ATTRIBUTS.has(attr.name) || !valeurSure(attr.value)) continue;
+    el.setAttribute(attr.name, attr.value);
+  }
+  for (const enfant of Array.from(source.childNodes)) {
+    if (enfant.nodeType === Node.TEXT_NODE) {
+      if (nom === "text" || nom === "tspan" || nom === "title") el.appendChild(document.createTextNode(enfant.textContent ?? ""));
+    } else if (enfant.nodeType === Node.ELEMENT_NODE) {
+      const copie = copier(enfant, compte);
+      if (copie) el.appendChild(copie);
+    }
+  }
+  return el;
+}
+function nettoyerSvg(source) {
+  if (source.length > SVG_TAILLE_MAX) return null;
+  const avecNs = /<svg\b[^>]*\bxmlns=/.test(source) ? source : source.replace(/<svg\b/, `<svg xmlns="${SVG_NS}"`);
+  const doc = new DOMParser().parseFromString(avecNs, "image/svg+xml");
+  const racine = doc.documentElement;
+  if (!racine || racine.localName !== "svg" || doc.getElementsByTagName("parsererror").length > 0) return null;
+  const svg = copier(racine, { n: 0 });
+  if (!svg) return null;
+  svg.removeAttribute("width");
+  svg.removeAttribute("height");
+  svg.setAttribute("role", "img");
+  return svg;
+}
+
 // src/lienAgent.ts
 var DELAI_MAX = 9e4;
 var nodeRequire = () => window.require;
 var ErreurAgent = class extends Error {
+};
+var AgentEnPause = class extends ErreurAgent {
 };
 var LienAgent = class {
   constructor(racineVault, dossierPlugin) {
@@ -462,6 +571,7 @@ var LienAgent = class {
     clearTimeout(attente.minuterie);
     this.enAttente.delete(retour.id);
     if (retour.type === "fin") attente.resoudre(retour.sortie);
+    else if (retour.type === "pause") attente.rejeter(new AgentEnPause("Agent en pause (AGENT_BLOQUE=1)."));
     else attente.rejeter(new ErreurAgent(retour.message));
   }
   toutRejeter(message) {
@@ -491,43 +601,81 @@ function lienActif() {
   const lien2 = lienCourant();
   return lien2?.configure() ? lien2 : null;
 }
+async function parAgent(appel, factice) {
+  const lien2 = lienActif();
+  if (!lien2) return factice();
+  try {
+    return await appel(lien2);
+  } catch (err) {
+    if (err instanceof AgentEnPause) return factice();
+    throw err;
+  }
+}
 function passage(contexte) {
   return { texte: contexte.texte, chemin: contexte.chemin };
 }
 var LATENCE_FACTICE = 700;
-async function repondre(question, contexte, historique = []) {
-  const lien2 = lienActif();
-  if (lien2) {
-    const sortie = await lien2.demander({ agent: "chat", passage: passage(contexte), question, historique });
-    return sortie.texte;
-  }
+async function repondre(question, contexte, historique = [], morceau) {
+  return parAgent(
+    async (lien2) => (await lien2.demander(
+      { agent: "chat", passage: passage(contexte), question, historique },
+      morceau
+    )).texte,
+    () => repondreFactice(question, contexte, historique)
+  );
+}
+async function repondreFactice(question, contexte, historique) {
   await new Promise((r) => setTimeout(r, LATENCE_FACTICE));
   const extrait = contexte.texte.length > 60 ? `${contexte.texte.slice(0, 60)}\u2026` : contexte.texte;
   const suite = historique.length > 0 ? ` (apr\xE8s ${historique.length} message${historique.length > 1 ? "s" : ""})` : "";
-  return `R\xE9ponse factice : le back n'est pas encore branch\xE9. Question re\xE7ue : \xAB ${question} \xBB${suite}, sur \xAB ${extrait} \xBB.`;
+  return `R\xE9ponse factice : l'agent n'est pas branch\xE9 ou est en pause. Question re\xE7ue : \xAB ${question} \xBB${suite}, sur \xAB ${extrait} \xBB.`;
+}
+var INDICE_STOP = "Je ne peux plus t'aider sans te donner la solution. Pose ta question dans le chat si tu es bloqu\xE9.";
+async function agir(outil, contexte, precedents = []) {
+  if (outil === "aider" && precedents.some((p) => p.stop)) return { texte: INDICE_STOP, stop: true };
+  return parAgent((lien2) => agirParAgent(lien2, outil, contexte, precedents), () => agirFactice(outil, contexte, precedents));
+}
+async function agirParAgent(lien2, outil, contexte, precedents) {
+  const demande = outil === "aider" ? { agent: outil, passage: passage(contexte), indices: precedents.map((p) => p.texte) } : { agent: outil, passage: passage(contexte) };
+  const sortie = await lien2.demander(demande);
+  switch (outil) {
+    case "visualiser": {
+      const v = sortie;
+      return v.possible && v.svg ? { texte: "Visuel dessin\xE9 par l'agent.", svg: v.svg } : { texte: v.raison ?? "Ce passage ne se pr\xEAte pas \xE0 un visuel." };
+    }
+    case "aider": {
+      const a = sortie;
+      return a.stop ? { texte: a.texte || INDICE_STOP, stop: true } : { texte: a.texte };
+    }
+    case "traduire":
+      return { texte: sortie.texte };
+    default:
+      return sortie;
+  }
 }
 var LATENCE_OUTIL = 1500;
 var FACTICE = {
-  definir: "D\xE9finition factice : le back n'est pas encore branch\xE9.",
-  visualiser: "Visualisation factice : frise, mind map ou sch\xE9ma viendront du back.",
-  aider: "Indice factice : le back donnera des indices successifs, jamais la solution.",
-  traduire: "Traduction factice : le back traduira vers la langue du vault.",
-  resumer: "R\xE9sum\xE9 factice : le back donnera les points cl\xE9s de la s\xE9lection."
+  definir: "D\xE9finition factice : l'agent n'est pas branch\xE9.",
+  visualiser: "Visualisation factice.",
+  aider: "Indice factice",
+  traduire: "Traduction factice : l'agent traduira vers la langue du vault.",
+  resumer: "R\xE9sum\xE9 factice : l'agent donnera les points cl\xE9s de la s\xE9lection."
 };
-async function agir(outil, contexte) {
-  const lien2 = lienActif();
-  if (lien2) {
-    const demande = outil === "aider" ? { agent: outil, passage: passage(contexte), indices: [] } : { agent: outil, passage: passage(contexte) };
-    const sortie = await lien2.demander(demande);
-    if (outil === "visualiser") {
-      const v = sortie;
-      return v.possible ? "Visuel re\xE7u : son dessin dans la carte arrive \xE0 l'\xE9tape suivante." : v.raison ?? "Ce passage ne se pr\xEAte pas \xE0 un visuel.";
-    }
-    return sortie.texte;
-  }
+var INDICES_FACTICES = 3;
+var SVG_FACTICE = '<svg viewBox="0 0 320 90" font-family="inherit" font-size="12"><line x1="20" y1="45" x2="300" y2="45" stroke="currentColor" stroke-width="2"/><circle cx="40" cy="45" r="6" fill="var(--color-accent)"/><text x="40" y="28" text-anchor="middle" fill="currentColor">1941</text><text x="40" y="72" text-anchor="middle" fill="var(--text-muted)">Z3</text><circle cx="160" cy="45" r="6" fill="var(--color-accent)"/><text x="160" y="28" text-anchor="middle" fill="currentColor">1944</text><text x="160" y="72" text-anchor="middle" fill="var(--text-muted)">Colossus</text><circle cx="280" cy="45" r="6" fill="var(--color-accent)"/><text x="280" y="28" text-anchor="middle" fill="currentColor">1945</text><text x="280" y="72" text-anchor="middle" fill="var(--text-muted)">ENIAC</text></svg>';
+async function agirFactice(outil, contexte, precedents) {
   await new Promise((r) => setTimeout(r, LATENCE_OUTIL));
   const extrait = contexte.texte.length > 60 ? `${contexte.texte.slice(0, 60)}\u2026` : contexte.texte;
-  return `${FACTICE[outil]} Passage : \xAB ${extrait} \xBB.`;
+  switch (outil) {
+    case "visualiser":
+      return { texte: FACTICE.visualiser, svg: SVG_FACTICE };
+    case "aider":
+      return precedents.length >= INDICES_FACTICES ? { texte: INDICE_STOP, stop: true } : { texte: `${FACTICE.aider} num\xE9ro ${precedents.length + 1}, sur \xAB ${extrait} \xBB.` };
+    case "definir":
+      return { texte: `${FACTICE.definir} Passage : \xAB ${extrait} \xBB.`, source: "web" };
+    default:
+      return { texte: `${FACTICE[outil]} Passage : \xAB ${extrait} \xBB.` };
+  }
 }
 var LATENCE_ORALE = 1e3;
 async function parler(audio, contexte, historique = []) {
@@ -541,17 +689,17 @@ async function parler(audio, contexte, historique = []) {
 }
 var LATENCE_BILAN = 1200;
 async function resumerOral(historique, contexte) {
-  const lien2 = lienActif();
-  if (lien2) {
-    const sortie = await lien2.demander({ agent: "bilan", passage: passage(contexte), historique });
-    return sortie.texte;
-  }
-  await new Promise((r) => setTimeout(r, LATENCE_BILAN));
-  const tours = historique.filter((m) => m.auteur === "moi").length;
-  const extrait = contexte.texte.length > 40 ? `${contexte.texte.slice(0, 40)}\u2026` : contexte.texte;
-  return `\u2022 Bilan factice : le back n'est pas encore branch\xE9.
+  return parAgent(
+    async (lien2) => (await lien2.demander({ agent: "bilan", passage: passage(contexte), historique })).texte,
+    async () => {
+      await new Promise((r) => setTimeout(r, LATENCE_BILAN));
+      const tours = historique.filter((m) => m.auteur === "moi").length;
+      const extrait = contexte.texte.length > 40 ? `${contexte.texte.slice(0, 40)}\u2026` : contexte.texte;
+      return `\u2022 Bilan factice : l'agent n'est pas branch\xE9 ou est en pause.
 \u2022 ${tours} tour${tours > 1 ? "s" : ""} de parole sur \xAB ${extrait} \xBB.
-\u2022 Le back donnera ici les points cl\xE9s de la discussion.`;
+\u2022 L'agent donnera ici les points cl\xE9s de la discussion.`;
+    }
+  );
 }
 
 // src/supprimer.ts
@@ -648,6 +796,8 @@ var ActionAgent = class extends import_fragment2.Component {
   iconeCercleEl;
   iconeCarteEl;
   titreEl;
+  /** Le petit globe : la réponse vient du web. */
+  sourceEl;
   corpsEl;
   pied;
   /** La carte en widget du cœur (fenetre.ts). */
@@ -687,6 +837,12 @@ var ActionAgent = class extends import_fragment2.Component {
     this.iconeCarteEl.classList.add("agent-action-icone");
     this.titreEl = tete.appendChild(document.createElement("span"));
     this.titreEl.classList.add("agent-action-titre");
+    this.sourceEl = tete.appendChild(document.createElement("span"));
+    this.sourceEl.classList.add("agent-action-source");
+    this.sourceEl.title = "R\xE9ponse tir\xE9e du web";
+    this.sourceEl.setAttribute("aria-label", "R\xE9ponse tir\xE9e du web");
+    (0, import_fragment2.setIcon)(app, this.sourceEl, "globe");
+    this.sourceEl.hidden = true;
     const fermerEl = tete.appendChild(document.createElement("button"));
     fermerEl.type = "button";
     fermerEl.classList.add("agent-bulle-fermer");
@@ -724,12 +880,12 @@ var ActionAgent = class extends import_fragment2.Component {
    * Lance `outil` sur le passage. `depuis` est la boîte CLIENT de la barre,
    * juste avant qu'elle ne soit retirée : le rond en sort.
    */
-  lancer(outil, contexte, depuis) {
+  lancer(outil, contexte, depuis, precedents = []) {
     this.attendre(
       OUTILS[outil],
       depuis,
-      agir(outil, contexte),
-      (texte) => ({ type: "outil", outil, texte })
+      agir(outil, contexte, precedents),
+      (reponse) => ({ type: "outil", outil, ...reponse })
     );
   }
   /**
@@ -740,8 +896,8 @@ var ActionAgent = class extends import_fragment2.Component {
     this.attendre(
       BILAN,
       depuis,
-      resumerOral(messages, contexte),
-      (texte) => ({ type: "oral", messages, texte }),
+      resumerOral(messages, contexte).then((texte) => ({ texte })),
+      ({ texte }) => ({ type: "oral", messages, texte }),
       "Bilan indisponible."
     );
   }
@@ -749,7 +905,7 @@ var ActionAgent = class extends import_fragment2.Component {
   attendre(aspect, depuis, reponse, resultat, texteSiErreur) {
     this.cercleEl.setAttribute("aria-label", `${aspect.libelle} : l'agent r\xE9fl\xE9chit`);
     this.preparer(aspect);
-    if (texteSiErreur !== void 0) this.montre = resultat(texteSiErreur);
+    if (texteSiErreur !== void 0) this.montre = resultat({ texte: texteSiErreur });
     this.lancement++;
     const lancement = this.lancement;
     const estCourant = () => this._loaded && this.lancement === lancement;
@@ -757,14 +913,14 @@ var ActionAgent = class extends import_fragment2.Component {
     this.load();
     this.rond = this.repere.monter(this.cercleEl, (el) => this.repere.aCote(el));
     this.animations.push(resorber(depuis, this.cercleEl));
-    reponse.then((texte) => {
+    reponse.then((recue) => {
       if (!estCourant()) return;
-      this.montre = resultat(texte);
-      this.ouvrirCarte(texte, false);
+      this.montre = resultat(recue);
+      this.ouvrirCarte(recue, false);
     }).catch((err) => {
       if (estCourant()) {
-        if (texteSiErreur !== void 0) this.montre = resultat(texteSiErreur);
-        this.ouvrirCarte(`L'agent n'a pas pu r\xE9pondre : ${err instanceof Error ? err.message : String(err)}`, true);
+        if (texteSiErreur !== void 0) this.montre = resultat({ texte: texteSiErreur });
+        this.ouvrirCarte({ texte: `L'agent n'a pas pu r\xE9pondre : ${err instanceof Error ? err.message : String(err)}` }, true);
       }
     });
   }
@@ -772,12 +928,12 @@ var ActionAgent = class extends import_fragment2.Component {
    * Rouvre une réponse déjà reçue (une icône de l'historique, traces.ts) :
    * pas de rond, la carte sort directement de l'icône.
    */
-  montrer(outil, texte, depuis, cadre) {
+  montrer(outil, reponse, depuis, cadre) {
     this.preparer(OUTILS[outil]);
     this.pied.montrer(true);
     this.pied.montrerDiscuter(true);
-    this.montre = { type: "outil", outil, texte };
-    this.corpsEl.textContent = texte;
+    this.montre = { type: "outil", outil, ...reponse };
+    this.afficher(reponse);
     this.lancement++;
     this.carteEl.style.opacity = "0";
     this.load();
@@ -797,10 +953,34 @@ var ActionAgent = class extends import_fragment2.Component {
     this.titreEl.textContent = libelle;
     this.carteEl.setAttribute("aria-label", libelle);
     this.corpsEl.textContent = "";
-    this.corpsEl.classList.remove("is-error");
+    this.corpsEl.classList.remove("is-error", "is-visuel", "is-stop");
+    this.sourceEl.hidden = true;
     this.pied.montrer(false);
     this.pied.montrerDiscuter(false);
     this.montre = null;
+  }
+  /**
+   * Le corps de la carte : le dessin de Visualiser (toujours nettoyé, jamais
+   * inséré tel que le modèle l'a écrit), sinon le texte. Le globe si la
+   * réponse vient du web.
+   */
+  afficher(reponse) {
+    this.corpsEl.textContent = "";
+    this.sourceEl.hidden = reponse.source !== "web";
+    this.corpsEl.classList.toggle("is-stop", reponse.stop === true);
+    if (reponse.svg !== void 0) {
+      const svg = nettoyerSvg(reponse.svg);
+      this.corpsEl.classList.toggle("is-visuel", svg !== null);
+      if (svg) {
+        svg.setAttribute("aria-label", `Visuel du passage`);
+        this.corpsEl.appendChild(svg);
+        return;
+      }
+      this.corpsEl.textContent = "Le dessin re\xE7u n'a pas pu \xEAtre affich\xE9.";
+      return;
+    }
+    this.corpsEl.classList.remove("is-visuel");
+    this.corpsEl.textContent = reponse.texte;
   }
   onunload() {
     for (const a of this.animations) a.annuler();
@@ -819,8 +999,8 @@ var ActionAgent = class extends import_fragment2.Component {
     this.cercleEl.remove();
   }
   /** Le rond s'ouvre en carte : la goutte du chat (eclosion.ts), depuis le rond. */
-  ouvrirCarte(texte, erreur) {
-    this.corpsEl.textContent = texte;
+  ouvrirCarte(reponse, erreur) {
+    this.afficher(reponse);
     this.corpsEl.classList.toggle("is-error", erreur);
     this.pied.montrerDiscuter(!erreur);
     this.carteEl.style.opacity = "0";
@@ -1367,7 +1547,13 @@ var BulleAgent = class extends import_fragment4.Component {
     const reponseEl = this.ajouterMessage("agent", "\u2026");
     reponseEl.classList.add("is-pending");
     try {
-      const reponse = await repondre(question, contexte, historique);
+      let recu = "";
+      const reponse = await repondre(question, contexte, historique, (morceau) => {
+        if (!estCourante()) return;
+        recu += morceau;
+        reponseEl.textContent = recu;
+        this.filEl.scrollTop = this.filEl.scrollHeight;
+      });
       if (!estCourante()) return;
       reponseEl.textContent = reponse;
     } catch (err) {
@@ -1467,6 +1653,13 @@ var CarnetTraces = class {
     this.retirer(trace.id);
     this.placer();
     return trace;
+  }
+  /**
+   * Les réponses de `outil` déjà données sur un passage qui chevauche
+   * [from, to], dans l'ordre : Aider s'en sert pour l'indice suivant.
+   */
+  reponsesSur(outil, from, to) {
+    return this.traces.filter((t) => t.contenu.type === "outil" && t.contenu.outil === outil && t.zone.from < to && from < t.zone.to).map((t) => t.contenu);
   }
   /** Une réponse est ouverte depuis la marge : c'est déjà une annotation. */
   aUneOuverte() {
@@ -2357,7 +2550,8 @@ function createAgentLayer(ctx) {
       const depuis = barre.dom.getBoundingClientRect();
       bulle.fermer();
       barre.cacher();
-      action.lancer(outil, zone, depuis);
+      const precedents = outil === "aider" ? carnet.reponsesSur(outil, zone.from, zone.to) : [];
+      action.lancer(outil, zone, depuis, precedents);
       majOccupe();
     },
     // Le micro : pareil, la barre fond dans le rond du micro.
@@ -2462,7 +2656,7 @@ function createAgentLayer(ctx) {
     zone = { ...t.zone };
     trait = carnet.traitDe(t);
     if (t.contenu.type === "outil") {
-      action.montrer(t.contenu.outil, t.contenu.texte, depuis, t.cadre);
+      action.montrer(t.contenu.outil, t.contenu, depuis, t.cadre);
     } else if (t.contenu.type === "oral") {
       bulle.rouvrir(zone, t.contenu.messages, depuis, t.cadre, { bilan: t.contenu.bilan, poubelle: true });
     } else {

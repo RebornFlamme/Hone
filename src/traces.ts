@@ -3,7 +3,7 @@ import { OUTILS } from './ActionAgent';
 import type { Stroke } from './annotation';
 import type { Cadre } from './fenetre';
 import type { Repere } from './repere';
-import type { ContexteQuestion, Outil } from './repondre';
+import type { ContexteQuestion, Outil, ReponseOutil } from './repondre';
 
 // ═══════════════════════════════════════════════════════════════════════════
 //  L'historique de l'agent, dans la marge. Une carte d'outil ou une
@@ -37,7 +37,8 @@ import type { ContexteQuestion, Outil } from './repondre';
 
 /** Une réponse d'outil, ou une conversation. */
 export type Contenu =
-    | { type: 'outil'; outil: Outil; texte: string }
+    /** Tout ce que la carte montrait (texte, globe, dessin, arrêt de l'indice) : la rouvrir ne rappelle pas l'agent. */
+    | ({ type: 'outil'; outil: Outil } & ReponseOutil)
     /**
      * `outil` : la conversation continue la réponse de cet outil (la tête de
      * chat de sa carte). Son premier message est cette réponse, et la marge
@@ -137,6 +138,17 @@ export class CarnetTraces {
         this.retirer(trace.id);
         this.placer();
         return trace;
+    }
+
+    /**
+     * Les réponses de `outil` déjà données sur un passage qui chevauche
+     * [from, to], dans l'ordre : Aider s'en sert pour l'indice suivant.
+     */
+    reponsesSur(outil: Outil, from: number, to: number): ReponseOutil[] {
+        return this.traces
+            .filter((t) => t.contenu.type === 'outil' && t.contenu.outil === outil
+                && t.zone.from < to && from < t.zone.to)
+            .map((t) => t.contenu as ReponseOutil);
     }
 
     /** Une réponse est ouverte depuis la marge : c'est déjà une annotation. */

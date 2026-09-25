@@ -66,7 +66,9 @@ export function createAgentLayer(ctx: LayerContext): () => void {
             const depuis = barre.dom.getBoundingClientRect();
             bulle.fermer();
             barre.cacher();
-            action.lancer(outil, zone, depuis);
+            // Aider : les indices déjà donnés sur ce passage, pour le suivant.
+            const precedents = outil === 'aider' ? carnet.reponsesSur(outil, zone.from, zone.to) : [];
+            action.lancer(outil, zone, depuis, precedents);
             majOccupe();
         },
         // Le micro : pareil, la barre fond dans le rond du micro.
@@ -204,7 +206,7 @@ export function createAgentLayer(ctx: LayerContext): () => void {
         zone = { ...t.zone };
         trait = carnet.traitDe(t);
         if (t.contenu.type === 'outil') {
-            action.montrer(t.contenu.outil, t.contenu.texte, depuis, t.cadre);
+            action.montrer(t.contenu.outil, t.contenu, depuis, t.cadre);
         } else if (t.contenu.type === 'oral') {
             bulle.rouvrir(zone, t.contenu.messages, depuis, t.cadre, { bilan: t.contenu.bilan, poubelle: true });
         } else {

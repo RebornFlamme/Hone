@@ -435,6 +435,42 @@
     color: #e93147;
 }
 
+/* Le globe : la réponse vient du web. Discret, dans la couleur du texte secondaire. */
+.agent-action-source {
+    display: inline-flex;
+    color: var(--text-muted);
+}
+
+.agent-action-source[hidden] {
+    display: none;
+}
+
+.agent-action-source svg {
+    width: 14px;
+    height: 14px;
+}
+
+/* Le dessin de Visualiser : il prend la largeur de la carte, et la suit quand
+   on l'agrandit (viewBox, sans taille fixe). Le texte du dessin hérite de la
+   couleur de la carte (currentColor), donc des deux thèmes. */
+.agent-action-corps.is-visuel {
+    white-space: normal;
+    color: var(--text-normal);
+}
+
+.agent-action-corps.is-visuel svg {
+    display: block;
+    width: 100%;
+    height: auto;
+    max-height: 60vh;
+}
+
+/* L'indice qui s'arrête : il ne donnera pas la solution. */
+.agent-action-corps.is-stop {
+    color: var(--text-muted);
+    font-style: italic;
+}
+
 /* ── La poubelle d'une réponse rouverte, et sa confirmation (supprimer.ts) ── */
 
 .agent-pied {

@@ -2,7 +2,8 @@ import { Component, setIcon, type App, type WidgetHandle } from 'fragment';
 import { eclore, ressort, type Eclosion } from './eclosion';
 import { Fenetre, type Cadre } from './fenetre';
 import type { Repere } from './repere';
-import { agir, resumerOral, type ContexteQuestion, type Outil } from './repondre';
+import { nettoyerSvg } from './nettoyerSvg';
+import { agir, resumerOral, type ContexteQuestion, type Outil, type ReponseOutil } from './repondre';
 import { PiedSupprimer } from './supprimer';
 import type { Message } from './traces';
 
@@ -20,7 +21,7 @@ export const OUTILS: Record<Outil, { icone: string; libelle: string }> = {
  * orale avec les tours dont il est tiré.
  */
 export type Resultat =
-    | { type: 'outil'; outil: Outil; texte: string }
+    | ({ type: 'outil'; outil: Outil } & ReponseOutil)
     | { type: 'oral'; messages: Message[]; texte: string };
 
 /** Le rond et la carte du bilan d'une discussion orale. */
@@ -55,6 +56,8 @@ export class ActionAgent extends Component {
     private readonly iconeCercleEl: HTMLElement;
     private readonly iconeCarteEl: HTMLElement;
     private readonly titreEl: HTMLElement;
+    /** Le petit globe : la réponse vient du web. */
+    private readonly sourceEl: HTMLElement;
     private readonly corpsEl: HTMLElement;
     private readonly pied: PiedSupprimer;
     /** La carte en widget du cœur (fenetre.ts). */
@@ -108,6 +111,12 @@ export class ActionAgent extends Component {
         this.iconeCarteEl.classList.add('agent-action-icone');
         this.titreEl = tete.appendChild(document.createElement('span'));
         this.titreEl.classList.add('agent-action-titre');
+        this.sourceEl = tete.appendChild(document.createElement('span'));
+        this.sourceEl.classList.add('agent-action-source');
+        this.sourceEl.title = 'Réponse tirée du web';
+        this.sourceEl.setAttribute('aria-label', 'Réponse tirée du web');
+        setIcon(app, this.sourceEl, 'globe');
+        this.sourceEl.hidden = true;
         const fermerEl = tete.appendChild(document.createElement('button'));
         fermerEl.type = 'button';
         fermerEl.classList.add('agent-bulle-fermer');
@@ -156,9 +165,9 @@ export class ActionAgent extends Component {
      * Lance `outil` sur le passage. `depuis` est la boîte CLIENT de la barre,
      * juste avant qu'elle ne soit retirée : le rond en sort.
      */
-    lancer(outil: Outil, contexte: ContexteQuestion, depuis: DOMRect): void {
-        this.attendre(OUTILS[outil], depuis, agir(outil, contexte),
-            (texte) => ({ type: 'outil', outil, texte }));
+    lancer(outil: Outil, contexte: ContexteQuestion, depuis: DOMRect, precedents: ReponseOutil[] = []): void {
+        this.attendre(OUTILS[outil], depuis, agir(outil, contexte, precedents),
+            (reponse) => ({ type: 'outil', outil, ...reponse }));
     }
 
     /**
@@ -167,14 +176,14 @@ export class ActionAgent extends Component {
      */
     lancerBilan(contexte: ContexteQuestion, messages: Message[], depuis: DOMRect): void {
         // Sans bilan, la discussion reste gardée : on ne perd pas ce qui s'est dit.
-        this.attendre(BILAN, depuis, resumerOral(messages, contexte),
-            (texte) => ({ type: 'oral', messages, texte }), 'Bilan indisponible.');
+        this.attendre(BILAN, depuis, resumerOral(messages, contexte).then((texte) => ({ texte })),
+            ({ texte }) => ({ type: 'oral', messages, texte }), 'Bilan indisponible.');
     }
 
     /** Le rond tourne pendant `reponse`, puis s'ouvre en carte. */
     private attendre(
         aspect: { icone: string; libelle: string }, depuis: DOMRect,
-        reponse: Promise<string>, resultat: (texte: string) => Resultat,
+        reponse: Promise<ReponseOutil>, resultat: (reponse: ReponseOutil) => Resultat,
         /**
          * Sans lui, une réponse en attente ou en erreur ne laisse rien ; avec
          * lui, elle est gardée avec ce texte.
@@ -185,7 +194,7 @@ export class ActionAgent extends Component {
         this.preparer(aspect);
         // Gardée dès maintenant : fermée pendant que le rond tourne, la
         // discussion laisse quand même sa trace.
-        if (texteSiErreur !== undefined) this.montre = resultat(texteSiErreur);
+        if (texteSiErreur !== undefined) this.montre = resultat({ texte: texteSiErreur });
 
         this.lancement++;
         const lancement = this.lancement;
@@ -198,15 +207,15 @@ export class ActionAgent extends Component {
         this.animations.push(resorber(depuis, this.cercleEl));
 
         reponse
-            .then((texte) => {
+            .then((recue) => {
                 if (!estCourant()) return;
-                this.montre = resultat(texte);
-                this.ouvrirCarte(texte, false);
+                this.montre = resultat(recue);
+                this.ouvrirCarte(recue, false);
             })
             .catch((err: unknown) => {
                 if (estCourant()) {
-                    if (texteSiErreur !== undefined) this.montre = resultat(texteSiErreur);
-                    this.ouvrirCarte(`L'agent n'a pas pu répondre : ${err instanceof Error ? err.message : String(err)}`, true);
+                    if (texteSiErreur !== undefined) this.montre = resultat({ texte: texteSiErreur });
+                    this.ouvrirCarte({ texte: `L'agent n'a pas pu répondre : ${err instanceof Error ? err.message : String(err)}` }, true);
                 }
             });
     }
@@ -215,12 +224,12 @@ export class ActionAgent extends Component {
      * Rouvre une réponse déjà reçue (une icône de l'historique, traces.ts) :
      * pas de rond, la carte sort directement de l'icône.
      */
-    montrer(outil: Outil, texte: string, depuis: HTMLElement, cadre: Cadre | null): void {
+    montrer(outil: Outil, reponse: ReponseOutil, depuis: HTMLElement, cadre: Cadre | null): void {
         this.preparer(OUTILS[outil]);
         this.pied.montrer(true);
         this.pied.montrerDiscuter(true);
-        this.montre = { type: 'outil', outil, texte };
-        this.corpsEl.textContent = texte;
+        this.montre = { type: 'outil', outil, ...reponse };
+        this.afficher(reponse);
         this.lancement++;
         this.carteEl.style.opacity = '0';
         this.load();
@@ -243,10 +252,35 @@ export class ActionAgent extends Component {
         this.titreEl.textContent = libelle;
         this.carteEl.setAttribute('aria-label', libelle);
         this.corpsEl.textContent = '';
-        this.corpsEl.classList.remove('is-error');
+        this.corpsEl.classList.remove('is-error', 'is-visuel', 'is-stop');
+        this.sourceEl.hidden = true;
         this.pied.montrer(false);
         this.pied.montrerDiscuter(false);
         this.montre = null;
+    }
+
+    /**
+     * Le corps de la carte : le dessin de Visualiser (toujours nettoyé, jamais
+     * inséré tel que le modèle l'a écrit), sinon le texte. Le globe si la
+     * réponse vient du web.
+     */
+    private afficher(reponse: ReponseOutil): void {
+        this.corpsEl.textContent = '';
+        this.sourceEl.hidden = reponse.source !== 'web';
+        this.corpsEl.classList.toggle('is-stop', reponse.stop === true);
+        if (reponse.svg !== undefined) {
+            const svg = nettoyerSvg(reponse.svg);
+            this.corpsEl.classList.toggle('is-visuel', svg !== null);
+            if (svg) {
+                svg.setAttribute('aria-label', `Visuel du passage`);
+                this.corpsEl.appendChild(svg);
+                return;
+            }
+            this.corpsEl.textContent = 'Le dessin reçu n\'a pas pu être affiché.';
+            return;
+        }
+        this.corpsEl.classList.remove('is-visuel');
+        this.corpsEl.textContent = reponse.texte;
     }
 
     onunload(): void {
@@ -270,8 +304,8 @@ export class ActionAgent extends Component {
     }
 
     /** Le rond s'ouvre en carte : la goutte du chat (eclosion.ts), depuis le rond. */
-    private ouvrirCarte(texte: string, erreur: boolean): void {
-        this.corpsEl.textContent = texte;
+    private ouvrirCarte(reponse: ReponseOutil, erreur: boolean): void {
+        this.afficher(reponse);
         this.corpsEl.classList.toggle('is-error', erreur);
         // Une erreur n'est pas une réponse dont on discute.
         this.pied.montrerDiscuter(!erreur);
