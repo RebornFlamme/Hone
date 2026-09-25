@@ -1,5 +1,6 @@
 const video = document.getElementById("camera");
 const cancelCamera = document.getElementById("cancel-camera");
+const shutter = document.getElementById("shutter");
 const photo = document.getElementById("input_photo");
 const preview = document.getElementById("preview");
 const welcomeScreen = document.getElementById("screen-welcome");
@@ -29,14 +30,19 @@ photo.addEventListener("change", () => {
         return;
     }
 
+    showPhoto(file);
+});
+
+// Affiche une image (fichier importé ou photo prise) dans le viseur
+function showPhoto(image){
     if (url != null){
         URL.revokeObjectURL(url);
     }
-    url = URL.createObjectURL(file);
+    url = URL.createObjectURL(image);
 
     preview.src = url;
-    welcomeScreen.classList.add("has-photo")    
-});
+    welcomeScreen.classList.add("has-photo");
+}
 
 
 
@@ -73,7 +79,11 @@ authorization.addEventListener("click", async () => {
 
     try {
         stream = await navigator.mediaDevices.getUserMedia({
-            video: { facingMode: { ideal: "environment" } },
+            video: {
+                facingMode: { ideal: "environment" },
+                width: { ideal: 3840 },  // l'appareil donne le max qu'il peut (4K si possible)
+                height: { ideal: 2160 },
+            },
  
             audio: false,
         });
@@ -104,7 +114,28 @@ function stopCamera() {
 
 cancelCamera.addEventListener("click", () => {
     stopCamera();
-    
+
+})
+
+shutter.addEventListener("click", () => {
+    // La vidéo n'a pas encore reçu d'image : rien à capturer
+    if (video.videoWidth === 0) return;
+
+    // On dessine l'image actuelle de la vidéo dans un canvas à sa taille réelle
+    const canvas = document.createElement("canvas");
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+    canvas.getContext("2d").drawImage(video, 0, 0);
+
+    // Puis on en fait un fichier JPEG, comme une photo importée
+    canvas.toBlob((blob) => {
+        if (blob == null) {
+            showError("Impossible de prendre la photo.");
+            return;
+        }
+        showPhoto(blob);
+        stopCamera();
+    }, "image/jpeg", 0.92);
 })
 
 document.addEventListener("visibilitychange", () => {
