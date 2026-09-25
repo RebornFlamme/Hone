@@ -1,0 +1,573 @@
+/* La barre et la bulle de l'agent (views/agent/). Montées dans le pane de la
+   vue, comme la toolbar, d'où le `absolute` : Floating UI écrit left/top dans
+   le repère de leur parent positionné. Tout est en var(--…) de index.css, pour
+   suivre le thème clair comme le sombre. */
+
+.agent-bulle {
+    position: absolute;
+    top: 0;
+    left: 0;
+    z-index: 950;   /* au-dessus de la toolbar (900), sous le menu (1000) */
+    display: flex;
+    flex-direction: column;
+    width: 320px;
+    max-width: calc(100% - 16px);
+    border-radius: 12px;
+    background: var(--background-secondary);
+    border: 1px solid var(--tab-outline-color);
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+    color: var(--text-normal);
+    font-size: 13px;
+}
+
+/* ── La barre verticale (BarreAgent.ts) ─────────────────────────────────── */
+
+/* Même aspect que la toolbar du cœur (toolbar.css) : fond, filet, rayon, ombre.
+   Mais pas sa mécanique : celle-ci est collée à un passage par Floating UI. */
+.agent-barre {
+    position: absolute;
+    top: 0;
+    left: 0;
+    z-index: 940;   /* sous la bulle (950), au-dessus de la toolbar (900) */
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+    padding: 4px;
+    border-radius: 10px;
+    background: var(--background-secondary);
+    border: 1px solid var(--tab-outline-color);
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+    color: var(--text-normal);
+}
+
+.agent-barre-bouton {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    padding: 0;
+    border: 1px solid var(--tab-outline-color);
+    border-radius: 50%;
+    background: transparent;
+    color: var(--text-normal);
+    cursor: pointer;
+}
+
+/* Les outils cachés tant que la barre n'est pas rallongée : l'attribut
+   `hidden` ne suffit pas, `display: inline-flex` l'écraserait. */
+.agent-barre-bouton[hidden] {
+    display: none;
+}
+
+.agent-barre-bouton:hover:not(:disabled) {
+    background: rgba(128, 128, 128, 0.18);
+}
+
+.agent-barre-bouton:disabled {
+    cursor: default;
+    opacity: 0.5;
+}
+
+.agent-barre-bouton:focus-visible {
+    outline: 2px solid var(--color-accent);
+    outline-offset: 1px;
+}
+
+.agent-barre-bouton svg {
+    width: 16px;
+    height: 16px;
+}
+
+/* La croix et « … » ne sont pas des outils : plus petits, sans cercle. */
+.agent-barre-fermer,
+.agent-barre-plus {
+    width: 20px;
+    height: 20px;
+    border: none;
+    border-radius: 6px;
+    color: var(--text-muted);
+}
+
+.agent-barre-fermer svg,
+.agent-barre-plus svg {
+    width: 14px;
+    height: 14px;
+}
+
+.agent-barre-fermer:hover,
+.agent-barre-plus:hover {
+    color: var(--text-normal);
+}
+
+/* ── L'en-tête : la zone citée, et la croix ─────────────────────────────── */
+
+.agent-bulle-tete {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 8px 8px 12px;
+}
+
+.agent-bulle-extrait {
+    flex: 1;
+    min-width: 0;
+    padding-left: 8px;
+    border-left: 2px solid var(--color-accent);
+    color: var(--text-muted);
+    font-size: var(--font-ui-small);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.agent-bulle-fermer,
+.agent-bulle-envoyer {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    padding: 0;
+    border: none;
+    cursor: pointer;
+}
+
+.agent-bulle-fermer {
+    width: 24px;
+    height: 24px;
+    border-radius: 6px;
+    background: transparent;
+    color: var(--text-muted);
+}
+
+.agent-bulle-fermer:hover {
+    background: rgba(128, 128, 128, 0.18);
+    color: var(--text-normal);
+}
+
+.agent-bulle-fermer svg {
+    width: 15px;
+    height: 15px;
+}
+
+.agent-bulle-fermer:focus-visible,
+.agent-bulle-envoyer:focus-visible {
+    outline: 2px solid var(--color-accent);
+    outline-offset: 1px;
+}
+
+/* ── Le fil ─────────────────────────────────────────────────────────────── */
+
+.agent-bulle-fil {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    min-height: 140px;   /* une fenêtre de chat dès l'ouverture, saisie en bas (le schéma) */
+    max-height: 240px;
+    padding: 4px 12px 8px;
+    overflow-y: auto;
+}
+
+.agent-message {
+    max-width: 85%;
+    padding: 6px 10px;
+    border-radius: 10px;
+    line-height: 1.4;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    user-select: text;
+}
+
+.agent-message.mod-moi {
+    align-self: flex-end;
+    background: var(--color-accent);
+    color: #ffffff;
+}
+
+.agent-message.mod-agent {
+    align-self: flex-start;
+    background: rgba(128, 128, 128, 0.16);
+}
+
+.agent-message.is-pending {
+    color: var(--text-muted);
+}
+
+.agent-message.is-error {
+    color: #e93147;   /* le rouge des entrées destructives du menu */
+}
+
+/* ── La saisie ──────────────────────────────────────────────────────────── */
+
+.agent-bulle-saisie {
+    display: flex;
+    align-items: flex-end;
+    gap: 6px;
+    margin: 0;
+    padding: 8px;
+    border-top: 1px solid var(--tab-outline-color);
+}
+
+.agent-bulle-champ {
+    flex: 1;
+    min-width: 0;
+    box-sizing: border-box;
+    max-height: 120px;
+    padding: 6px 8px;
+    border: 1px solid var(--tab-outline-color);
+    border-radius: 8px;
+    background: var(--workspace-bg);
+    color: var(--text-normal);
+    font: inherit;
+    line-height: 1.4;
+    resize: none;
+}
+
+.agent-bulle-champ:focus {
+    outline: none;
+    border-color: var(--color-accent);
+}
+
+.agent-bulle-envoyer {
+    width: 30px;
+    height: 30px;
+    border-radius: 8px;
+    background: var(--color-accent);
+    color: #ffffff;
+}
+
+.agent-bulle-envoyer:disabled {
+    opacity: 0.4;
+    cursor: default;
+}
+
+.agent-bulle-envoyer svg {
+    width: 16px;
+    height: 16px;
+}
+
+/* ── L'éclosion (eclosion.ts) ─────────────────────────────────────────────── */
+
+/* Le calque fantôme de l'animation d'ouverture : entre la barre (940) et la
+   bulle (950), et transparent aux clics. Les formes sont pleines, de la couleur
+   du contour des boutons de la barre : la goutte sort du bouton tête de chat. */
+.agent-eclosion {
+    position: absolute;
+    z-index: 945;
+    pointer-events: none;
+}
+
+.agent-eclosion-forme {
+    position: absolute;
+    background: var(--tab-outline-color);
+}
+
+/* ── La zone suivie, dans le texte ──────────────────────────────────────── */
+
+/* Posée par un layer CM6 derrière le texte (above: false), en coordonnées
+   document : même mécanique que le surligneur des annotations. Invisible :
+   le trait qu'on a tracé suffit à montrer le passage. La boîte reste, elle
+   donne aux tests e2e le texte que l'agent a compris du trait. */
+.agent-zone {
+    position: absolute;
+    border-radius: 3px;
+    background: transparent;
+    pointer-events: none;
+}
+
+/* ── Un outil lancé (ActionAgent.ts) ─────────────────────────────────────── */
+
+/* Le gros rond qui remplace la barre pendant que l'agent réfléchit : le fond
+   et le filet de la barre, l'icône de l'outil au centre. */
+.agent-action-cercle {
+    position: absolute;
+    top: 0;
+    left: 0;
+    z-index: 940;   /* la place de la barre */
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 48px;
+    height: 48px;
+    box-sizing: border-box;
+    border-radius: 50%;
+    background: var(--background-secondary);
+    border: 1px solid var(--tab-outline-color);
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+    color: var(--text-normal);
+}
+
+.agent-action-cercle .agent-action-icone svg {
+    width: 22px;
+    height: 22px;
+}
+
+.agent-action-icone {
+    display: inline-flex;
+}
+
+/* L'arc qui tourne autour du rond : un quart de cercle à la couleur d'accent,
+   posé 5 px au-delà du filet. */
+.agent-action-arc {
+    position: absolute;
+    inset: -6px;
+    width: calc(100% + 12px);
+    height: calc(100% + 12px);
+    overflow: visible;
+    pointer-events: none;
+    animation: agent-action-tourne 0.9s linear infinite;
+}
+
+.agent-action-arc circle {
+    fill: none;
+    stroke: var(--color-accent);
+    stroke-width: 2.5;
+    stroke-linecap: round;
+    stroke-dasharray: 25 75;
+}
+
+.agent-action-cercle.is-fini .agent-action-arc {
+    display: none;
+}
+
+@keyframes agent-action-tourne {
+    to { transform: rotate(360deg); }
+}
+
+/* Moins de mouvement demandé : l'arc ne tourne plus, il respire. */
+@media (prefers-reduced-motion: reduce) {
+    .agent-action-arc {
+        animation: agent-action-respire 1.6s ease-in-out infinite;
+    }
+}
+
+@keyframes agent-action-respire {
+    50% { opacity: 0.3; }
+}
+
+/* La forme qui part de la barre et se pose sur le rond (resorber). */
+.agent-action-forme {
+    position: absolute;
+    z-index: 941;
+    box-sizing: border-box;
+    background: var(--background-secondary);
+    border: 1px solid var(--tab-outline-color);
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+    pointer-events: none;
+}
+
+/* La carte de la réponse : l'aspect de la bulle du chat. */
+.agent-action-carte {
+    position: absolute;
+    top: 0;
+    left: 0;
+    z-index: 950;
+    width: 300px;
+    max-width: calc(100% - 16px);
+    border-radius: 12px;
+    background: var(--background-secondary);
+    border: 1px solid var(--tab-outline-color);
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+    color: var(--text-normal);
+    font-size: 13px;
+}
+
+.agent-action-tete {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 8px 4px 12px;
+}
+
+.agent-action-tete .agent-action-icone svg {
+    width: 16px;
+    height: 16px;
+}
+
+.agent-action-titre {
+    flex: 1;
+    font-weight: 600;
+}
+
+.agent-action-corps {
+    padding: 4px 12px 12px;
+    line-height: 1.45;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    user-select: text;
+}
+
+.agent-action-corps.is-error {
+    color: #e93147;
+}
+
+/* ── La poubelle d'une réponse rouverte, et sa confirmation (supprimer.ts) ── */
+
+.agent-pied {
+    display: flex;
+    align-items: center;
+    min-height: 28px;
+    padding: 4px 8px 8px;
+}
+
+.agent-pied[hidden],
+.agent-pied [hidden] {
+    display: none;
+}
+
+/* La poubelle à GAUCHE : à droite, « Supprimer » apparaissait sous le curseur
+   qui venait de la cliquer, et un double clic supprimait sans confirmer. */
+
+/* Le chat a déjà son filet au-dessus de la saisie : le pied se colle dessous. */
+.agent-bulle .agent-pied {
+    padding-top: 0;
+}
+
+.agent-pied-poubelle {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 24px;
+    height: 24px;
+    padding: 0;
+    border: 0;
+    border-radius: 6px;
+    background: transparent;
+    color: var(--text-muted);
+    cursor: pointer;
+}
+
+.agent-pied-poubelle:hover {
+    background: rgba(128, 128, 128, 0.18);
+    color: var(--text-normal);
+}
+
+.agent-pied-poubelle svg {
+    width: 15px;
+    height: 15px;
+}
+
+.agent-pied-confirmation {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 6px;
+    width: 100%;
+}
+
+/* La question sur sa ligne, les deux boutons dessous, à droite. */
+.agent-pied-confirmation span {
+    flex-basis: 100%;
+    padding: 2px 4px 0;
+    color: var(--text-muted);
+}
+
+.agent-pied-annuler,
+.agent-pied-supprimer {
+    height: 26px;
+    padding: 0 10px;
+    border-radius: 6px;
+    font: inherit;
+    cursor: pointer;
+}
+
+.agent-pied-annuler {
+    border: 1px solid var(--tab-outline-color);
+    background: transparent;
+    color: var(--text-normal);
+}
+
+.agent-pied-annuler:hover {
+    background: rgba(128, 128, 128, 0.18);
+}
+
+/* Rouge plus sombre que celui des erreurs (#e93147) : le blanc dessus passe 4,5:1. */
+.agent-pied-supprimer {
+    border: 0;
+    background: #d3263b;
+    color: #ffffff;
+    font-weight: 600;
+}
+
+.agent-pied-supprimer:hover {
+    background: #b81f32;
+}
+
+.agent-pied-poubelle:focus-visible,
+.agent-pied-annuler:focus-visible,
+.agent-pied-supprimer:focus-visible {
+    outline: 2px solid var(--color-accent);
+    outline-offset: 1px;
+}
+
+/* Chat ou carte ouverts : la surface d'annotation ne dessine plus (agentLayer),
+   le curseur ne doit pas promettre le contraire. */
+.agent-occupe .annotation-surface.is-armed {
+    cursor: default;
+}
+
+/* ── L'historique dans la marge (traces.ts) ─────────────────────────────── */
+
+/* Une icône par réponse fermée, à la hauteur de son passage. Plus discrète que
+   les boutons de la barre : elle se lit comme une note en marge, pas comme un
+   outil. Posée dans le plan document, elle suit le texte au scroll. */
+.agent-trace {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 24px;
+    height: 24px;
+    padding: 0;
+    border: 1px solid var(--tab-outline-color);
+    border-radius: 50%;
+    background: var(--background-secondary);
+    color: var(--text-muted);
+    cursor: pointer;
+    opacity: 0.75;
+    transition: opacity 120ms ease, color 120ms ease;
+}
+
+.agent-trace:hover,
+.agent-trace:focus-visible {
+    opacity: 1;
+    color: var(--text-normal);
+}
+
+.agent-trace:focus-visible {
+    outline: 2px solid var(--color-accent);
+    outline-offset: 1px;
+}
+
+.agent-trace svg {
+    width: 14px;
+    height: 14px;
+}
+
+/* Sa réponse est rouverte : l'icône s'efface mais garde sa place (traces.ts). */
+.agent-trace.is-ouverte {
+    visibility: hidden;
+}
+
+/* ── Les curseurs de l'annotation ──────────────────────────────────────────
+   Pas l'agent lui-même, mais rien ne doit vivre dans le cœur. Chaque outil a
+   pour curseur son icône de la toolbar (lucide `pencil`, `highlighter`,
+   `eraser`), déjà inclinée, cernée de blanc pour rester lisible sur les deux
+   thèmes. Le point chaud est là où l'outil touche la page : la mine du crayon
+   (2 22), le coin bas-gauche de la pointe biseautée du surligneur (3 20), le
+   milieu du bout de la gomme (5 18). Le repli reste celui du cœur.
+
+   Le cœur ne dit pas quel outil est armé, sauf pour la gomme (`mod-gomme`) :
+   on le lit sur le bouton actif de la barre d'annotation du même pane. */
+.view-content:has(.toolbar-item.is-active[aria-label="Crayon"]) .annotation-surface.is-armed {
+    cursor: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none' stroke-linecap='round' stroke-linejoin='round'%3E%3Cg stroke='white' stroke-width='4'%3E%3Cpath d='M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z'/%3E%3Cpath d='m15 5 4 4'/%3E%3C/g%3E%3Cg stroke='black' stroke-width='2'%3E%3Cpath d='M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z'/%3E%3Cpath d='m15 5 4 4'/%3E%3C/g%3E%3C/svg%3E") 2 22, crosshair;
+}
+
+.view-content:has(.toolbar-item.is-active[aria-label="Surligneur"]) .annotation-surface.is-armed {
+    cursor: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none' stroke-linecap='round' stroke-linejoin='round'%3E%3Cg stroke='white' stroke-width='4'%3E%3Cpath d='m9 11-6 6v3h9l3-3'/%3E%3Cpath d='m22 12-4.6 4.6a2 2 0 0 1-2.8 0l-5.2-5.2a2 2 0 0 1 0-2.8L14 4'/%3E%3C/g%3E%3Cg stroke='black' stroke-width='2'%3E%3Cpath d='m9 11-6 6v3h9l3-3'/%3E%3Cpath d='m22 12-4.6 4.6a2 2 0 0 1-2.8 0l-5.2-5.2a2 2 0 0 1 0-2.8L14 4'/%3E%3C/g%3E%3C/svg%3E") 3 20, crosshair;
+}
+
+.view-content .annotation-surface.mod-gomme {
+    cursor: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none' stroke-linecap='round' stroke-linejoin='round'%3E%3Cg stroke='white' stroke-width='4'%3E%3Cpath d='M21 21H8a2 2 0 0 1-1.42-.587l-3.994-3.999a2 2 0 0 1 0-2.828l10-10a2 2 0 0 1 2.829 0l5.999 6a2 2 0 0 1 0 2.828L12.834 21'/%3E%3Cpath d='m5.082 11.09 8.828 8.828'/%3E%3C/g%3E%3Cg stroke='black' stroke-width='2'%3E%3Cpath d='M21 21H8a2 2 0 0 1-1.42-.587l-3.994-3.999a2 2 0 0 1 0-2.828l10-10a2 2 0 0 1 2.829 0l5.999 6a2 2 0 0 1 0 2.828L12.834 21'/%3E%3Cpath d='m5.082 11.09 8.828 8.828'/%3E%3C/g%3E%3C/svg%3E") 5 18, cell;
+}
