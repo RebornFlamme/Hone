@@ -8,9 +8,12 @@ const welcomeScreen = document.getElementById("screen-welcome");
 const errorMessage = document.getElementById("error-message");
 let url = null;
 let stream = null; 
+let socket = null;
+const sessionId = location.hash.slice(1);
 const retry = document.getElementById("error-retry");
 const home = document.getElementById("home");
 const authorization = document.getElementById("allow-camera");
+const RELAY_URL = "wss://hone-relay.lasky.workers.dev";
 
 photo.addEventListener("change", () => {
     const file = photo.files[0];
@@ -158,6 +161,30 @@ shutter.addEventListener("click", () => {
         showPhoto(blob);
     }, "image/jpeg", 0.92);
 })
+
+
+function connectRelay(){
+    socket = new WebSocket(`${RELAY_URL}/session/${sessionId}?role=phone`);
+    
+    socket.onopen = () => console.log("Connecté au relais");
+    socket.onmessage = (event) => console.log("Reçu :", event.data);
+    socket.onclose = (event) => {
+        if (event.code === 4404){
+            showError("Ce lien a expiré. Rescanne le QR code depuis Fragment.");
+        }
+        else if(event.code === 4409){
+            showError("Un autre téléphone est déjà connecté à cette session.");
+        }
+        else{
+            setTimeout(connectRelay, 2000);
+        }
+    };
+
+}
+
+if (sessionId){
+    connectRelay();
+}
 
 document.addEventListener("visibilitychange", () => {
     if (document.hidden) stopCamera();

@@ -1,5 +1,5 @@
 
-const RELAY_URL = "ws://localhost:8787";
+const RELAY_URL = "wss://hone-relay.lasky.workers.dev";
 
 // Site téléphone : l'adresse GitHub Pages (le QR pointera vers SITE_URL#<id>)
 const SITE_URL = "https://oscarflasky.github.io/honeweb/";
@@ -27,6 +27,8 @@ function showQrCode(url, container) {
 }
 
 
+
+
 // ================= Page de test (jetable) =================
 
 const qrBox = document.getElementById("qr");
@@ -39,8 +41,9 @@ const newSessionBtn = document.getElementById("new-session");
 const gallery = document.getElementById("gallery");
 const logBox = document.getElementById("log");
 
-let sessionId = null;
+
 let socket = null;
+let sessionId = null;
 let reconnectTimer = null;
 let incoming = null; // photo en cours de réception : { id, mime, size, chunks, received }
 
