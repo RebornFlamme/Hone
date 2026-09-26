@@ -14,6 +14,9 @@ const retry = document.getElementById("error-retry");
 const home = document.getElementById("home");
 const authorization = document.getElementById("allow-camera");
 const RELAY_URL = "wss://hone-relay.lasky.workers.dev";
+const sendPhoto = document.getElementById("send-photo");
+const frag_status = document.getElementById("fragment_status");
+const frag_status_text = document.getElementById("fragment_status_text");
 
 photo.addEventListener("change", () => {
     const file = photo.files[0];
@@ -167,8 +170,15 @@ function connectRelay(){
     socket = new WebSocket(`${RELAY_URL}/session/${sessionId}?role=phone`);
     
     socket.onopen = () => console.log("Connecté au relais");
-    socket.onmessage = (event) => console.log("Reçu :", event.data);
+    socket.onmessage = (event) => {
+        const message = JSON.parse(event.data);
+        if (message.type === "peer" && message.role === "desktop"){
+            setFragmentConnected(message.connected);
+        }
+
+    };
     socket.onclose = (event) => {
+        setFragmentConnected(false); // connexion perdue : on ne sait plus si Fragment est là
         if (event.code === 4404){
             showError("Ce lien a expiré. Rescanne le QR code depuis Fragment.");
         }
@@ -185,6 +195,18 @@ function connectRelay(){
 if (sessionId){
     connectRelay();
 }
+else{
+    // Site ouvert sans QR code : pas de session
+    setFragmentConnected(false, "Non relié à Fragment");
+}
+
+// `label` optionnel : remplace le texte par défaut quand c'est déconnecté
+function setFragmentConnected(connected, label = "Fragment non connecté"){
+    frag_status_text.textContent = connected ? "Connecté à Fragment" : label;
+    frag_status.classList.toggle("is-offline", !connected);
+    sendPhoto.disabled = !connected;
+}
+
 
 document.addEventListener("visibilitychange", () => {
     if (document.hidden) stopCamera();

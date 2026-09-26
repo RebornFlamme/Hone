@@ -131,6 +131,11 @@ svg {
   box-shadow: 0 0 0 3px rgba(34, 197, 94, 0.18);
 }
 
+.status.is-offline .status__dot {
+  background: var(--danger);
+  box-shadow: 0 0 0 3px var(--danger-soft);
+}
+
 /* ---------- Hero ---------- */
 .hero {
   display: flex;
@@ -281,6 +286,13 @@ svg {
 }
 
 .btn:active { transform: scale(0.98); }
+
+.btn:disabled {
+  opacity: 0.45;
+  box-shadow: none;
+  cursor: not-allowed;
+  transform: none;
+}
 
 .btn:focus-visible {
   outline: 3px solid var(--accent);
