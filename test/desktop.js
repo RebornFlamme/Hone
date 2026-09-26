@@ -1,23 +1,29 @@
-// ================= Configuration =================
-// Relais : en local `npm run dev` dans relay/ → ws://localhost:8787
-//          en ligne : l'adresse donnée par `npm run deploy`, en wss://
+
 const RELAY_URL = "ws://localhost:8787";
 
 // Site téléphone : l'adresse GitHub Pages (le QR pointera vers SITE_URL#<id>)
-const SITE_URL = "https://<ton-pseudo>.github.io/honeweb/";
+const SITE_URL = "https://oscarflasky.github.io/honeweb/";
 
 
-// ================= À coder toi-même (réutilisé dans le plugin) =================
 
-// Doit renvoyer un id de session aléatoire, impossible à deviner.
-// Le relais accepte : lettres, chiffres, - et _, entre 16 et 128 caractères.
 function createSessionId() {
-    // TODO
+   return crypto.randomUUID();
+
 }
 
 // Doit afficher un QR code de `url` à l'intérieur de `container` (la div #qr).
 function showQrCode(url, container) {
-    // TODO
+    const qr = new QRCodeStyling({
+        width: 200,
+        height: 200,
+        data: url,
+        margin: 8, // zone blanche autour : aide les téléphones à repérer le QR
+        dotsOptions: { color: "#16161a", type: "rounded" },
+        cornersSquareOptions: { color: "#646cff", type: "extra-rounded" },
+        cornersDotOptions: { color: "#646cff" },
+        backgroundOptions: { color: "#ffffff" },
+    });
+    qr.append(container);
 }
 
 
