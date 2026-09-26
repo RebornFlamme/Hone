@@ -8,12 +8,14 @@ const SITE_URL = "https://rebornflamme.github.io/Hone/";
 // Durée de l'animation de fermeture, la même que dans styles.css
 const CLOSE_MS = 140;
 
+
+
 export default class ScanPlugin extends Plugin {
     sessionId: string = crypto.randomUUID();          // l'id de la session, créé une fois au chargement du plugin
     relais: Relais |null = null;
     onload(): void {
         if (this.relais === null) {
-            this.relais = new Relais(this.sessionId, (connected) => { new Notice(connected ? "Téléphone connecté" : "Téléphone déconnecté") });
+            this.relais = new Relais(this.sessionId, (connected) => { new Notice(connected ? "Téléphone connecté" : "Téléphone déconnecté") },  (photo, id) => this.savePhoto(photo, id), );
             this.relais.connect();
             this.register(() => this.relais?.close());   
         }   
@@ -21,6 +23,22 @@ export default class ScanPlugin extends Plugin {
             new ScanModal(this.app, `${SITE_URL}#${this.sessionId}`, button).open();
         });
     }
+
+    async savePhoto(photo: Blob, id: string): Promise<void> {
+        if (this.app.vault.getFolderByPath("Scans")=== null){
+            await this.app.vault.createFolder("Scans");
+        }
+
+        const stamp = new Date().toISOString().slice(0, 19).replace(/:/g, "-");
+        const name = `scan-${stamp}`;
+        const octets = await photo.arrayBuffer();
+        const imageFile = await this.app.vault.createBinary(`Scans/${name}.jpg`, octets)
+
+        this.relais?.send({type: "photo-received", id : id});
+        new Notice("Scan reçu");
+    }
+
+    
 }
 
 class ScanModal extends Modal {
