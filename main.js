@@ -16,6 +16,9 @@ const sendPhotoLabel = document.getElementById("send-photo-label");
 const CHUNK_SIZE = 256 * 1024; // 256 Ko par morceau
 const frag_status = document.getElementById("fragment_status");
 const frag_status_text = document.getElementById("fragment_status_text");
+const sent_again = document.getElementById("sent-again");
+const expired_retry = document.getElementById("expired-retry");
+
 
 let url = null;
 let stream = null; 
@@ -185,7 +188,7 @@ function connectRelay(){
         else if (message.type === "photo-received" && message.id === pendingPhotoId){
             pendingPhotoId = null;
             sendPhotoLabel.textContent = "Envoyer vers Fragment";
-            goHome();
+            showScreen("screen-sent");
             sendPhoto.disabled = false;
         }
 
@@ -196,7 +199,7 @@ function connectRelay(){
             showError("Ce lien a expiré. Rescanne le QR code depuis Fragment.");
         }
         else if(event.code === 4409){
-            showError("Un autre téléphone est déjà connecté à cette session.");
+            showScreen("screen-expired");
         }
         else{
             setTimeout(connectRelay, 2000);
@@ -248,3 +251,10 @@ sendPhoto.addEventListener("click", () => {
 
     socket.send(JSON.stringify({ type: "photo-end", id: photoId }));
 });
+
+sent_again.addEventListener("click", goHome);
+
+expired_retry.addEventListener("click", () => {
+    goHome();
+    connectRelay();
+})
