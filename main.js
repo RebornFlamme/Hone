@@ -6,17 +6,23 @@ const photo = document.getElementById("input_photo");
 const preview = document.getElementById("preview");
 const welcomeScreen = document.getElementById("screen-welcome");
 const errorMessage = document.getElementById("error-message");
-let url = null;
-let stream = null; 
-let socket = null;
 const sessionId = location.hash.slice(1);
 const retry = document.getElementById("error-retry");
 const home = document.getElementById("home");
 const authorization = document.getElementById("allow-camera");
 const RELAY_URL = "wss://hone-relay.lasky.workers.dev";
 const sendPhoto = document.getElementById("send-photo");
+const sendPhotoLabel = document.getElementById("send-photo-label");
+const CHUNK_SIZE = 256 * 1024; // 256 Ko par morceau
 const frag_status = document.getElementById("fragment_status");
 const frag_status_text = document.getElementById("fragment_status_text");
+
+let url = null;
+let stream = null; 
+let socket = null;
+let currentPhoto = null;
+let pendingPhotoId = null;
+
 
 photo.addEventListener("change", () => {
     const file = photo.files[0];
@@ -47,10 +53,11 @@ function showPhoto(image){
         URL.revokeObjectURL(url);
     }
     url = URL.createObjectURL(image);
-
+    
     preview.src = url;
     welcomeScreen.classList.add("has-photo");
     stopCamera(); // si la photo vient de la caméra, ou d'un import depuis le viseur
+    currentPhoto = image;
 }
 
 
@@ -155,7 +162,7 @@ shutter.addEventListener("click", () => {
     canvas.height = video.videoHeight;
     canvas.getContext("2d").drawImage(video, 0, 0);
 
-    // Puis on en fait un fichier JPEG, comme une photo importée
+    
     canvas.toBlob((blob) => {
         if (blob == null) {
             showError("Impossible de prendre la photo.");
@@ -175,10 +182,16 @@ function connectRelay(){
         if (message.type === "peer" && message.role === "desktop"){
             setFragmentConnected(message.connected);
         }
+        else if (message.type === "photo-received" && message.id === pendingPhotoId){
+            pendingPhotoId = null;
+            sendPhotoLabel.textContent = "Envoyer vers Fragment";
+            goHome();
+            sendPhoto.disabled = false;
+        }
 
     };
     socket.onclose = (event) => {
-        setFragmentConnected(false); // connexion perdue : on ne sait plus si Fragment est là
+        setFragmentConnected(false); 
         if (event.code === 4404){
             showError("Ce lien a expiré. Rescanne le QR code depuis Fragment.");
         }
@@ -212,3 +225,26 @@ document.addEventListener("visibilitychange", () => {
     if (document.hidden) stopCamera();
 });
 window.addEventListener("pagehide", stopCamera);
+
+sendPhoto.addEventListener("click", () => {
+    if (!currentPhoto || socket?.readyState !== WebSocket.OPEN ) return;
+
+    const photoId = crypto.randomUUID();
+    sendPhoto.disabled = true;                 // pas de double envoi
+    sendPhotoLabel.textContent = "Envoi…";     
+    pendingPhotoId = photoId;
+  
+    socket.send(JSON.stringify({
+        type: "photo-start",
+        id: photoId,
+        mime: currentPhoto.type || "image/jpeg", 
+        size: currentPhoto.size,
+    }));
+
+
+    for (let offset = 0; offset < currentPhoto.size; offset += CHUNK_SIZE) {
+        socket.send(currentPhoto.slice(offset, offset + CHUNK_SIZE));
+    }
+
+    socket.send(JSON.stringify({ type: "photo-end", id: photoId }));
+});

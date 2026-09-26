@@ -106,7 +106,7 @@
 
       <button class="btn btn--primary when-photo" id="send-photo" type="button">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M22 2 11 13"/><path d="M22 2 15 22l-4-9-9-4 20-7z"/></svg>
-        Envoyer vers Fragment
+        <span id="send-photo-label">Envoyer vers Fragment</span>
       </button>
       <button class="btn btn--ghost when-photo" id="retake" type="button">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/></svg>
@@ -132,6 +132,42 @@
       </button>
     </footer>
   </main>
+
+  <main class="screen screen--center" id="screen-sent" hidden>
+    <div class="error">
+      <span class="error__icon error__icon--success" aria-hidden="true">
+        <svg viewBox="0 0 24 24"><path class="check" d="M5 12.5l4.5 4.5L19 7.5"/></svg>
+      </span>
+      <h1 class="title">Envoyé&nbsp;!</h1>
+      <p class="lead">Ta page est arrivée dans ton vault Fragment.</p>
+    </div>
+
+    <footer class="actions">
+      <button class="btn btn--primary" id="sent-again" type="button">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z"/><circle cx="12" cy="13" r="3"/></svg>
+        Scanner une autre page
+      </button>
+    </footer>
+  </main>
+
+  <main class="screen screen--center" id="screen-expired" hidden>
+    <div class="error">
+      <span class="error__icon error__icon--warning" aria-hidden="true">
+        <svg viewBox="0 0 24 24"><path d="M9 17H7A5 5 0 0 1 7 7h2"/><path d="M15 7h2a5 5 0 0 1 4 8"/><path d="M8 12h3"/><path d="m2 2 20 20"/></svg>
+      </span>
+      <h1 class="title">Lien expiré</h1>
+      <p class="lead" id="expired-message">Cette session Fragment est fermée. Rescanne le QR code depuis Fragment pour continuer.</p>
+    </div>
+
+    <footer class="actions">
+      <button class="btn btn--primary" id="expired-retry" type="button">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/></svg>
+        Réessayer
+      </button>
+      <p class="fineprint">Fragment a été rouvert avec le même QR&nbsp;? Réessaie.</p>
+    </footer>
+  </main>
+
   <script src="main.js" defer></script>
 </body>
 </html>

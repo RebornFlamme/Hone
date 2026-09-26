@@ -15,6 +15,9 @@
   --success: #22c55e;
   --danger: #ef4444;
   --danger-soft: rgba(239, 68, 68, 0.10);
+  --success-soft: rgba(34, 197, 94, 0.12);
+  --warning: #f59e0b;
+  --warning-soft: rgba(245, 158, 11, 0.12);
   --shadow: 0 1px 2px rgba(22, 22, 26, 0.04), 0 8px 24px rgba(22, 22, 26, 0.06);
   --shadow-accent: 0 6px 20px rgba(100, 108, 255, 0.35);
 
@@ -514,6 +517,41 @@ svg {
 
 .error__icon svg { width: 32px; height: 32px; }
 
+/* ---------- Écrans « Envoyé » et « Lien expiré » ---------- */
+/* Même mise en page que l'erreur, seule la pastille change de couleur */
+.error__icon--success {
+  background: var(--success-soft);
+  color: var(--success);
+}
+
+.error__icon--warning {
+  background: var(--warning-soft);
+  color: var(--warning);
+}
+
+/* La pastille apparaît avec un rebond, puis la coche se dessine */
+#screen-sent:not([hidden]) .error__icon {
+  animation: badge-pop 0.5s cubic-bezier(0.34, 1.56, 0.64, 1) 0.15s both;
+}
+
+.check {
+  stroke-width: 2.5;
+  stroke-dasharray: 22;
+  stroke-dashoffset: 22;
+}
+
+#screen-sent:not([hidden]) .check {
+  animation: draw-check 0.4s ease-out 0.5s forwards;
+}
+
+@keyframes badge-pop {
+  from { opacity: 0; transform: scale(0.5); }
+}
+
+@keyframes draw-check {
+  to { stroke-dashoffset: 0; }
+}
+
 /* ---------- Transition entre écrans (View Transitions API) ---------- */
 /* Chaque écran visible porte ce nom : le navigateur anime l'ancien
    qui s'en va et le nouveau qui arrive. Le fond ne bouge pas. */
@@ -547,6 +585,9 @@ svg {
   .scanner__live::before { animation: none; }
   .has-camera .scanner__beam { top: 50%; }
   .shutter__core { transition: none; }
+  #screen-sent:not([hidden]) .error__icon,
+  #screen-sent:not([hidden]) .check { animation: none; }
+  .check { stroke-dashoffset: 0; }
   ::view-transition-old(screen),
   ::view-transition-new(screen) { animation: none; }
 }
