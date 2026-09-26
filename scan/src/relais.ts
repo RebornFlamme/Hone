@@ -24,16 +24,17 @@ export class Relais {
         ws.onmessage = (event) => {
             if (typeof event.data !== "string"){
                 this.incoming?.chunks.push(event.data);
+                return;
             };   
             const message = JSON.parse(event.data);
             if (message.type === "peer" && message.role === "phone") {
-                this.onPhone(true);
+                this.onPhone(message.connected);
             }
             else if (message.type === "photo-start"){
-                this.incoming = { id : this.onPhoto.id, mime : message.mime || "Image/jpeg", size: this.onPhoto.photo.size, chunks: []};
+                this.incoming = { id : message.id, mime : message.mime || "image/jpeg", size: message.size, chunks: []};
             }
             else if (message.type ==="photo-end"){
-                if (this.incoming === null || this.incoming.id !== null) return;
+                if (this.incoming === null || this.incoming.id !== message.id) return;
                 const photo = new Blob(this.incoming.chunks, {type : this.incoming.mime});
                 this.incoming = null;
                 this.onPhoto(photo, message.id);
@@ -42,7 +43,7 @@ export class Relais {
     
 
         ws.onclose = (event) => {
-            this.onPhone(false);
+            this.onPhone(false); this.incoming = null;
             if (!this.stopped && event.code !== 4000) {
                 setTimeout(() => this.connect(), 2000);
             }
